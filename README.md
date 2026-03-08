@@ -84,18 +84,14 @@ target/release/oreilly-epub 9781787782204 --cookies ./cookies.json
 
 - This tool assumes the O'Reilly “files” API includes OPF/NCX and all
 referenced assets.
-- HTML rewriting currently uses simple string replacement guided by a URL→local
-mapping; it is **not** a full DOM parse (see Roadmap).
-- File streaming during zip currently buffers each file into memory (OK for
-most books; see Roadmap for planned streaming improvements).
 - Concurrency is not enabled yet; downloads are sequential.
 
 ## Roadmap / TODO
 
 - [ ] **CONTRIBUTING.md**: add architecture notes & contributor guidelines.
-- [ ] **Robust HTML rewriting**: replace string replacement with real HTML
+- [x] **Robust HTML rewriting**: replace string replacement with real XHTML
 parsing to update `src`, `href`, and other attributes precisely.
-- [ ] **Stylesheets completeness**: ensure all CSS referenced by chapters is
+- [x] **Stylesheets completeness**: ensure all CSS referenced by chapters is
 included and linked properly (cross-check chapters endpoint vs files list).
 - [ ] **License**: add copyright notice to each file and specify it in Cargo.toml.
 - [ ] **XDG directories**: use XDG‑compatible defaults for config and the
@@ -105,9 +101,9 @@ download root.
 and/or file counts).
 - [ ] **Richer metadata**: pull extended book metadata from O'Reilly's metadata
 endpoint and embed into the EPUB.
-- [ ] **XML generation**: build `container.xml` using an XML writer instead of
+- [x] **XML generation**: build `container.xml` using an XML writer instead of
 raw strings.
-- [ ] **Low‑memory zip**: stream files to the archive in chunks to reduce peak
+- [x] **Low‑memory zip**: stream files to the archive in chunks to reduce peak
 memory.
 - [ ] **CI/CD**: add a basic pipeline (build, fmt, clippy, test, release
 artifact).
