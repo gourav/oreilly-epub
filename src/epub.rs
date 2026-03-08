@@ -1,6 +1,6 @@
 use crate::{
     models::{Chapter, EpubResponse, FileEntry},
-    xml::build_epub_chapter,
+    xml::{build_epub_chapter, write_modified_opf},
 };
 use anyhow::{Context, Result};
 use ogrim::xml;
@@ -122,6 +122,8 @@ pub fn create_epub_archive(
                 &url_path_to_local,
                 &mut zip,
             )?;
+        } else if entry.ourn == opf_entry.ourn {
+            write_modified_opf(buf_reader, &mut zip, &epub_data.descriptions.plain)?;
         } else {
             copy(&mut buf_reader, &mut zip)?;
         }

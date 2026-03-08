@@ -14,11 +14,19 @@ pub struct Paginated<T> {
 pub struct EpubResponse {
     pub publication_date: String,
     pub title: String,
+    pub descriptions: Descriptions,
     pub chapters: String,          // This is a URL to the chapters list
     pub files: String,             // This is a URL to the resource files
     pub spine: String,             // This is a URL to the spine list
     pub table_of_contents: String, // This is a URL to the table of contents
     pub language: String,
+}
+
+/// Sub-model of EpubResponse - descriptions.
+#[derive(Debug, Deserialize)]
+pub struct Descriptions {
+    #[serde(rename = "text/plain")]
+    pub plain: String,
 }
 
 /// Model for chapters API.
