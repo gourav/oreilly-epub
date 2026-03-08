@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
-use crate::models::{Chapter, EpubResponse, FileEntry, Paginated, SpineItem, TocNode};
+use crate::models::{Chapter, EpubResponse, FileEntry, Paginated};
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use directories::{BaseDirs, UserDirs};
@@ -44,24 +44,8 @@ async fn fetch_epub_data(client: &Client, bookid: &str) -> Result<EpubResponse> 
     Ok(response)
 }
 
-/// Fetches a direct array endpoint (no pagination, simple list).
-async fn fetch_direct_array<T>(client: &Client, url: &str) -> Result<Vec<T>>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let response = client
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Vec<T>>()
-        .await
-        .context("Failed to deserialize API response")?;
-    Ok(response)
-}
-
 /// Fetch a paginated API.
-async fn fetch_all_pages<T>(client: &reqwest::Client, mut url: String) -> Result<Vec<T>>
+async fn fetch_all_pages<T>(client: &reqwest::Client, mut url: url::Url) -> Result<Vec<T>>
 where
     T: serde::de::DeserializeOwned,
 {
@@ -69,7 +53,7 @@ where
     loop {
         // GET current URL and deserialize into Paginated<T>.
         let response = client
-            .get(&url)
+            .get(url)
             .send()
             .await?
             .error_for_status()?
@@ -144,8 +128,6 @@ async fn main() -> Result<()> {
     let chapters: HashMap<String, Chapter> =
         chapters.into_iter().map(|c| (c.ourn.clone(), c)).collect();
     let file_entries: Vec<FileEntry> = fetch_all_pages(&client, epub_data.files.clone()).await?;
-    let spine_items: Vec<SpineItem> = fetch_all_pages(&client, epub_data.spine.clone()).await?;
-    let toc_vec: Vec<TocNode> = fetch_direct_array(&client, &epub_data.table_of_contents).await?;
 
     let epub_root = data_root.join("files").join(&args.bookid);
     if !args.skip_download {
