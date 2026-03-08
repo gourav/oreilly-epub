@@ -74,6 +74,9 @@ pub fn create_epub_archive(
     file_entries: &[FileEntry],
     chapters: &HashMap<String, Chapter>,
 ) -> Result<()> {
+    if let Some(parent_dir) = output_epub.parent() {
+        std::fs::create_dir_all(parent_dir)?;
+    }
     let out_file = std::fs::File::create(output_epub)?;
     let mut zip = ZipWriter::new(out_file);
 

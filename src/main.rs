@@ -4,13 +4,13 @@ mod models;
 mod xml;
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
 use crate::models::{Chapter, EpubResponse, FileEntry, Paginated, SpineItem, TocNode};
 use anyhow::{Context, Result};
 use clap::Parser;
+use directories::{BaseDirs, UserDirs};
 use reqwest::Client;
 
 /// Download and generate an EPUB from Safari Books Online.
@@ -88,8 +88,20 @@ where
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Obtain relevant XDG base directories.
+    let base_dirs = BaseDirs::new().context("Could not get XDG base directories.")?;
+    let data_root = base_dirs.data_dir().join("oreilly-epub");
+
     // Parse the command line arguments
     let args = Args::parse();
+
+    // Obtain the path to the destination EPUB file.
+    let user_dirs = UserDirs::new().context("Could not get XDG user directories.")?;
+    let epub_path = user_dirs
+        .download_dir()
+        .unwrap_or(&user_dirs.home_dir().join("Downloads"))
+        .join("oreilly-epub")
+        .join(format!("{}.epub", args.bookid));
 
     println!("Welcome to SafariBooks Rust Port!");
     println!("Target Book ID: {}", args.bookid);
@@ -115,14 +127,13 @@ async fn main() -> Result<()> {
     let spine_items: Vec<SpineItem> = fetch_all_pages(&client, epub_data.spine.clone()).await?;
     let toc_vec: Vec<TocNode> = fetch_direct_array(&client, &epub_data.table_of_contents).await?;
 
-    let dest_root = format!("Books/{}/epub_root", args.bookid);
-    let dest_root = Path::new(&dest_root);
+    let epub_root = data_root.join("files").join(&args.bookid);
     if !args.skip_download {
-        download_all_files(&client, &file_entries, dest_root).await?;
+        println!("Downloading files from the server...");
+        download_all_files(&client, &file_entries, &epub_root).await?;
     }
-    let epub_path = format!("Books/{0}/{0}.epub", args.bookid);
-    let epub_path = Path::new(&epub_path);
-    create_epub_archive(&epub_data, dest_root, epub_path, &file_entries, &chapters)?;
+    println!("Generating the EPUB file...");
+    create_epub_archive(&epub_data, &epub_root, &epub_path, &file_entries, &chapters)?;
 
     Ok(())
 }
