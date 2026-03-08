@@ -23,9 +23,9 @@ struct Args {
     /// Path to the cookies.json file.
     #[arg(long, default_value = "cookies.json")]
     cookies: String,
-    /// Do not delete the log file on success.
-    #[arg(long = "preserve-log")]
-    preserve_log: bool,
+    /// Do not download files. Use if they were already downloaded in a previous run.
+    #[arg(long = "skip-download")]
+    skip_download: bool,
 }
 
 /// Fetches EPUB structural data (like the chapters URL).
@@ -117,7 +117,9 @@ async fn main() -> Result<()> {
 
     let dest_root = format!("Books/{}/epub_root", args.bookid);
     let dest_root = Path::new(&dest_root);
-    download_all_files(&client, &file_entries, dest_root).await?;
+    if !args.skip_download {
+        download_all_files(&client, &file_entries, dest_root).await?;
+    }
     let epub_path = format!("Books/{0}/{0}.epub", args.bookid);
     let epub_path = Path::new(&epub_path);
     create_epub_archive(&epub_data, dest_root, epub_path, &file_entries, &chapters)?;
