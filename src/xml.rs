@@ -62,6 +62,7 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
 
     // Write wrapper prefix to output first.
     out.write_all(wrapper_prefix.as_bytes())?;
+    out.write_all(b"\n")?;
 
     // Setup the XML Reader and Writer.
     let mut reader = Reader::from_reader(fragment_input);
@@ -109,6 +110,7 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
     }
 
     // Finish by flushing wrapper suffix to output.
+    out.write_all(b"\n")?;
     out.write_all(wrapper_suffix.as_bytes())?;
 
     Ok(())
