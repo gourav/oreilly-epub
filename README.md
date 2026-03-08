@@ -88,19 +88,19 @@ referenced assets.
 
 ## Roadmap / TODO
 
+- [ ] **Logging**: add the ability to perform logging.
 - [ ] **CONTRIBUTING.md**: add architecture notes & contributor guidelines.
 - [x] **Robust HTML rewriting**: replace string replacement with real XHTML
 parsing to update `src`, `href`, and other attributes precisely.
 - [x] **Stylesheets completeness**: ensure all CSS referenced by chapters is
 included and linked properly (cross-check chapters endpoint vs files list).
 - [ ] **License**: add copyright notice to each file and specify it in Cargo.toml.
-- [ ] **XDG directories**: use XDG‑compatible defaults for config and the
+- [x] **XDG directories**: use XDG‑compatible defaults for config and the
 download root.
 - [ ] **Concurrency**: implement parallel downloads with a configurable limit.
 - [ ] **Progress reporting**: display per‑file and overall progress (bytes
 and/or file counts).
-- [ ] **Richer metadata**: pull extended book metadata from O'Reilly's metadata
-endpoint and embed into the EPUB.
+- [x] **Richer metadata**: add metadata such as description to the OPF.
 - [x] **XML generation**: build `container.xml` using an XML writer instead of
 raw strings.
 - [x] **Low‑memory zip**: stream files to the archive in chunks to reduce peak
