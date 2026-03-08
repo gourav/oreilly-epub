@@ -8,7 +8,7 @@ use relative_path::{RelativePath, RelativePathBuf};
 use reqwest::Client;
 use std::{
     collections::HashMap,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Write, copy},
     path::Path,
 };
 use tokio::{
@@ -106,22 +106,21 @@ pub fn create_epub_archive(
         FileOptions::default().compression_method(CompressionMethod::Deflated);
     for entry in file_entries {
         zip.start_file(&entry.full_path, options)?;
-        let mut src_file = std::fs::File::open(entry.full_path.to_path(epub_root))?;
+        let src_file = std::fs::File::open(entry.full_path.to_path(epub_root))?;
+        let mut buf_reader = BufReader::new(src_file);
         if let Some(chapter) = chapters.get(&entry.ourn) {
             let chapter_dir = entry.full_path.parent().unwrap_or(RelativePath::new(""));
             build_epub_chapter(
                 epub_data,
                 chapter,
                 chapter_dir,
-                BufReader::new(src_file),
+                buf_reader,
                 &url_to_file,
                 &url_path_to_local,
                 &mut zip,
             )?;
         } else {
-            let mut buffer = Vec::new();
-            src_file.read_to_end(&mut buffer)?;
-            zip.write_all(&buffer)?;
+            copy(&mut buf_reader, &mut zip)?;
         }
     }
 
