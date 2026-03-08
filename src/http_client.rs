@@ -1,15 +1,16 @@
 use anyhow::{Context, Result};
 use reqwest::{Client, cookie::Jar};
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 /// Reads the cookies.json file and builds an authenticated reqwest client.
-pub fn build_authenticated_client(cookies_path: &str) -> Result<Client> {
+pub fn build_authenticated_client(cookies_path: &PathBuf) -> Result<Client> {
     // Read the JSON file.
-    let cookies_content = fs::read_to_string(cookies_path)
-        .with_context(|| format!("Failed to read cookies file from: {}", cookies_path))?;
+    println!("Reading cookies from {cookies_path:?}...");
+    let cookies_content = fs::read(cookies_path)
+        .with_context(|| format!("Failed to read cookies file from {cookies_path:?}."))?;
 
     // Parse the JSON into a Rust HashMap.
-    let cookies_map: HashMap<String, String> = serde_json::from_str(&cookies_content)
+    let cookies_map: HashMap<String, String> = serde_json::from_slice(&cookies_content)
         .context("Failed to parse cookies file. Ensure it is a flat key-value JSON object.")?;
 
     // Create a Cookie Jar.

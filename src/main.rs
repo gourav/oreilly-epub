@@ -4,11 +4,13 @@ mod models;
 mod xml;
 
 use std::collections::HashMap;
+use std::env::current_dir;
+use std::path::PathBuf;
 
 use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
 use crate::models::{Chapter, EpubResponse, FileEntry, Paginated, SpineItem, TocNode};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use directories::{BaseDirs, UserDirs};
 use reqwest::Client;
@@ -21,8 +23,8 @@ struct Args {
     #[arg(required = true)]
     bookid: String,
     /// Path to the cookies.json file.
-    #[arg(long, default_value = "cookies.json")]
-    cookies: String,
+    #[arg(long)]
+    cookies: Option<String>,
     /// Do not download files. Use if they were already downloaded in a previous run.
     #[arg(long = "skip-download")]
     skip_download: bool,
@@ -91,6 +93,7 @@ async fn main() -> Result<()> {
     // Obtain relevant XDG base directories.
     let base_dirs = BaseDirs::new().context("Could not get XDG base directories.")?;
     let data_root = base_dirs.data_dir().join("oreilly-epub");
+    let config_root = base_dirs.config_dir().join("oreilly-epub");
 
     // Parse the command line arguments
     let args = Args::parse();
@@ -108,7 +111,24 @@ async fn main() -> Result<()> {
 
     // Initialise the HTTP client.
     println!("Loading cookies and initialising the HTTP client...");
-    let client = build_authenticated_client(&args.cookies)?;
+    let candidate_cookies_paths = [
+        args.cookies.map(PathBuf::from),
+        Some(config_root.join("cookies.json")),
+        Some(current_dir()?.join("cookies.json")),
+    ];
+    let cookies_file = candidate_cookies_paths
+        .into_iter()
+        .flatten()
+        .find(|path| path.exists())
+        .ok_or_else(|| {
+            anyhow!(
+                "No cookies.json found. {}, {} {:?}.",
+                "Either provide one through the --cookies option",
+                "or create one in the current directory or at",
+                config_root
+            )
+        })?;
+    let client = build_authenticated_client(&cookies_file)?;
 
     println!("Fetching book metadata...");
     // Fetch from the EPUB API.
