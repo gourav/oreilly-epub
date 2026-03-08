@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use ogrim::{Document, xml};
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use relative_path::{RelativePath, RelativePathBuf};
 use std::collections::HashMap;
@@ -112,6 +112,50 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
     // Finish by flushing wrapper suffix to output.
     out.write_all(b"\n")?;
     out.write_all(wrapper_suffix.as_bytes())?;
+
+    Ok(())
+}
+
+/// Processes the fragment and outputs a complete, EPUB-ready XHTML document.
+pub fn write_modified_opf<R: BufRead, W: Write>(
+    opf_input: R,
+    mut out: &mut W,
+    description: &str,
+) -> Result<()> {
+    // Setup the XML Reader and Writer.
+    let mut reader = Reader::from_reader(opf_input);
+    // Preserve spacing for easier diffs.
+    reader.config_mut().trim_text(false);
+    let mut writer = Writer::new(&mut out);
+
+    // Loop through the XML events and check tags.
+    let mut buffer = Vec::new();
+    let mut desc_found = false;
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(tag_data)) => {
+                // Simply record if dc:description found.
+                if tag_data.name().as_ref() == b"dc:description" {
+                    desc_found = true;
+                }
+                // Then pass through unmodified.
+                writer.write_event(Event::Start(tag_data))?;
+            }
+            Ok(Event::End(tag_data)) => {
+                // Write description if end of metadata is reached without finding one.
+                if tag_data.name().as_ref() == b"metadata" && !desc_found {
+                    writer.write_event(Event::Start(BytesStart::new("dc:description")))?;
+                    writer.write_event(Event::Text(BytesText::new(description)))?;
+                    writer.write_event(Event::End(BytesEnd::new("dc:description")))?;
+                }
+                // Pass through unmodified.
+                writer.write_event(Event::End(tag_data))?;
+            }
+            Ok(Event::Eof) => break,
+            Ok(tag_data) => writer.write_event(tag_data)?, // Pass through text, comments, etc. unmodified.
+            Err(e) => anyhow::bail!(e),
+        }
+    }
 
     Ok(())
 }
