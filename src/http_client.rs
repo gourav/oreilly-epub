@@ -25,8 +25,8 @@ pub fn build_authenticated_client(cookies_path: &PathBuf) -> Result<Client> {
 
     // Build the client with the cookie provider and a standard User-Agent.
     let client = Client::builder()
-        .cookie_provider(Arc::clone(&jar))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .cookie_provider(jar)
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0")
         .build()
         .context("Failed to build the HTTP client")?;
 
