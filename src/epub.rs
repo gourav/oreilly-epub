@@ -18,10 +18,7 @@ use tokio::{
 use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
 /// Creates and writes container.xml.
-fn write_container_xml_to_zip(
-    zip: &mut ZipWriter<std::fs::File>,
-    opf_full_path: &RelativePathBuf,
-) -> Result<()> {
+fn write_container_xml<W: Write>(out: &mut W, opf_full_path: &RelativePathBuf) -> Result<()> {
     // Prepare file contents.
     let contents = xml!(
         <?xml version="1.0" encoding="UTF-8"?>
@@ -33,10 +30,7 @@ fn write_container_xml_to_zip(
     );
 
     // Write down the file.
-    let options: FileOptions<()> =
-        FileOptions::default().compression_method(CompressionMethod::Deflated);
-    zip.start_file("META-INF/container.xml", options)?;
-    zip.write_all(contents.as_str().as_bytes())?;
+    out.write_all(contents.as_str().as_bytes())?;
     Ok(())
 }
 
@@ -86,12 +80,16 @@ pub fn create_epub_archive(
     zip.start_file("mimetype", options)?;
     zip.write_all(b"application/epub+zip")?;
 
-    // Find the OPF file entry to reference it in container.xml
+    // Find the OPF file entry to reference it in "container.xml".
     let opf_entry = file_entries
         .iter()
         .find(|f| f.filename_ext == ".opf" && f.media_type == "application/oebps-package+xml")
         .context("No OPF file with the correct MIME type was found.")?;
-    write_container_xml_to_zip(&mut zip, &opf_entry.full_path)?;
+    // Write down the "container.xml" to zip.
+    let options: FileOptions<()> =
+        FileOptions::default().compression_method(CompressionMethod::Deflated);
+    zip.start_file("META-INF/container.xml", options)?;
+    write_container_xml(&mut zip, &opf_entry.full_path)?;
 
     // Prepare url path to local path mapping to clean xhtml files from external dependencies.
     let url_path_to_local = file_entries
@@ -105,8 +103,7 @@ pub fn create_epub_archive(
         .collect::<HashMap<_, _>>();
 
     // Add the rest of the files according to file_entries.
-    let options: FileOptions<()> =
-        FileOptions::default().compression_method(CompressionMethod::Deflated);
+    // The `options` variable remains unchanged from "container.xml".
     for entry in file_entries {
         zip.start_file(&entry.full_path, options)?;
         let src_file = std::fs::File::open(entry.full_path.to_path(epub_root))?;
