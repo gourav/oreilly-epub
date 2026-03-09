@@ -3,6 +3,9 @@ stages:
   - test
   - release
 
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+
 default:
   image: rust:1.93
   cache:
