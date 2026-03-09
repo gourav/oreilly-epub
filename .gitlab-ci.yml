@@ -71,13 +71,13 @@ release:
     - cargo build --release --target aarch64-unknown-linux-musl
     # Package binaries with clear naming
     - mkdir -p dist
-    - cp target/release/oreilly-epub \
+    - cp target/release/oreilly-epub
          dist/oreilly-epub-linux-x86_64
-    - cp target/x86_64-unknown-linux-musl/release/oreilly-epub \
+    - cp target/x86_64-unknown-linux-musl/release/oreilly-epub
          dist/oreilly-epub-linux-x86_64-musl
-    - cp target/aarch64-unknown-linux-gnu/release/oreilly-epub \
+    - cp target/aarch64-unknown-linux-gnu/release/oreilly-epub
          dist/oreilly-epub-linux-aarch64
-    - cp target/aarch64-unknown-linux-musl/release/oreilly-epub \
+    - cp target/aarch64-unknown-linux-musl/release/oreilly-epub
          dist/oreilly-epub-linux-aarch64-musl
   artifacts:
     name: "oreilly-epub-$CI_COMMIT_TAG"
