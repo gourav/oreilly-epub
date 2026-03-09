@@ -57,10 +57,43 @@ jobs:
       - name: Run tests
         run: cargo test --all
 
-  release:
+  create_release:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+
+    outputs:
+      upload_url: ${{ steps.create.outputs.upload_url }}
+
+    steps:
+      - name: Create GitHub Release
+        id: create
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}   # 'v0.1.1'
+          release_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_and_upload:
+    needs: [test, create_release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: oreilly-epub-linux-x86_64
+            bin_path: target/release/oreilly-epub
+          - os: macos-latest
+            asset_name: oreilly-epub-macos-x86_64
+            bin_path: target/release/oreilly-epub
+          - os: windows-latest
+            asset_name: oreilly-epub-windows-x86_64.exe
+            bin_path: target/release/oreilly-epub.exe
 
     steps:
       - name: Checkout
@@ -81,8 +114,24 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Package binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp "${{ matrix.bin_path }}" "./${{ matrix.asset_name }}"
+        shell: bash
+
+      - name: Package binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Copy-Item "${{ matrix.bin_path }}" ".\${{ matrix.asset_name }}"
+        shell: pwsh
+
+      - name: Upload to GitHub Release
+        uses: actions/upload-release-asset@v1
         with:
-          name: oreilly-epub-linux-x86_64
-          path: target/release/oreilly-epub
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./${{ matrix.asset_name }}
+          asset_name: ${{ matrix.asset_name }}
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
