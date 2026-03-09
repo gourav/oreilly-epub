@@ -39,15 +39,34 @@ release:
   stage: release
   needs:
     - test
-  # Only run on tags starting with "v"
+  # Only run on tags starting with "v".
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
   script:
-    - cargo build --release
+    # Install system linkers for musl & ARM64.
+    - apt-get update
+    - apt-get install -y musl-tools gcc-aarch64-linux-gnu
+    # Add Rust targets.
+    - rustup target add x86_64-unknown-linux-musl
+    - rustup target add aarch64-unknown-linux-gnu
+    - rustup target add aarch64-unknown-linux-musl
+    # Build all four variants.
+    - cargo build --release # x86_64-gnu.
+    - cargo build --release --target x86_64-unknown-linux-musl
+    - cargo build --release --target aarch64-unknown-linux-gnu
+    - cargo build --release --target aarch64-unknown-linux-musl
+    # Package binaries with clear naming
     - mkdir -p dist
-    - cp target/release/oreilly-epub dist/oreilly-epub-linux-x86_64
+    - cp target/release/oreilly-epub \
+         dist/oreilly-epub-linux-x86_64
+    - cp target/x86_64-unknown-linux-musl/release/oreilly-epub \
+         dist/oreilly-epub-linux-x86_64-musl
+    - cp target/aarch64-unknown-linux-gnu/release/oreilly-epub \
+         dist/oreilly-epub-linux-aarch64
+    - cp target/aarch64-unknown-linux-musl/release/oreilly-epub \
+         dist/oreilly-epub-linux-aarch64-musl
   artifacts:
-    name: "oreilly-epub-$CI_COMMIT_TAG-linux-x86_64"
+    name: "oreilly-epub-$CI_COMMIT_TAG"
     paths:
-      - dist/oreilly-epub-linux-x86_64
+      - dist/
     expire_in: 1 week
