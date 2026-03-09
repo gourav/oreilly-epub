@@ -50,6 +50,20 @@ release:
     - rustup target add x86_64-unknown-linux-musl
     - rustup target add aarch64-unknown-linux-gnu
     - rustup target add aarch64-unknown-linux-musl
+    # aarch64-musl cross toolchain (musl.cc).
+    - curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar xz -C /opt
+    - export PATH="/opt/aarch64-linux-musl-cross/bin:$PATH"
+    # Set per-target environment variables to prevent wrong tools being used.
+    # x86_64-unknown-linux-musl.
+    - export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc
+    # aarch64-unknown-linux-gnu.
+    - export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+    - export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+    - export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
+    # aarch64-unknown-linux-musl.
+    - export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc
+    - export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
+    - export AR_aarch64_unknown_linux_musl=aarch64-linux-musl-ar
     # Build all four variants.
     - cargo build --release # x86_64-gnu.
     - cargo build --release --target x86_64-unknown-linux-musl
