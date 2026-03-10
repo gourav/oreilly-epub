@@ -16,9 +16,6 @@ use tokio::fs::{self, File};
 use tokio_util::io::StreamReader;
 use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
-// TODO: make configurable.
-const MAX_CONCURRENT: usize = 4;
-
 /// Creates and writes container.xml.
 fn write_container_xml<W: Write>(out: &mut W, opf_full_path: &RelativePathBuf) -> Result<()> {
     // Prepare file contents.
@@ -41,12 +38,13 @@ pub async fn download_all_files(
     client: &Client,
     file_entries: &[FileEntry],
     dest_root: &Path,
+    max_concurrent: usize,
 ) -> Result<()> {
     let mut downloading = FuturesUnordered::new();
     let mut files_iter = file_entries.iter();
 
     // Start downloading the first n files.
-    for entry in files_iter.by_ref().take(MAX_CONCURRENT) {
+    for entry in files_iter.by_ref().take(max_concurrent) {
         downloading.push(download_one_file(client, entry, dest_root));
     }
 

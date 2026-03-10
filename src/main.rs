@@ -11,7 +11,7 @@ use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
 use crate::models::{Chapter, EpubResponse, FileEntry, Paginated};
 use anyhow::{Context, Result, anyhow};
-use clap::Parser;
+use clap::{Parser, value_parser};
 use directories::{BaseDirs, UserDirs};
 use reqwest::Client;
 
@@ -28,6 +28,9 @@ struct Args {
     /// Do not download files. Use if they were already downloaded in a previous run.
     #[arg(long = "skip-download")]
     skip_download: bool,
+    /// Number of files to download in parallel. Limit is 8 (be polite).
+    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 4)]
+    parallel: u32,
 }
 
 /// Fetches EPUB structural data (like the chapters URL).
@@ -132,7 +135,13 @@ async fn main() -> Result<()> {
     let epub_root = data_root.join("files").join(&args.bookid);
     if !args.skip_download {
         println!("Downloading files from the server...");
-        download_all_files(&client, &file_entries, &epub_root).await?;
+        download_all_files(
+            &client,
+            &file_entries,
+            &epub_root,
+            args.parallel.try_into()?, // Will work as 1..=8 will fit into any usize.
+        )
+        .await?;
     }
     println!("Generating the EPUB file...");
     create_epub_archive(&epub_data, &epub_root, &epub_path, &file_entries, &chapters)?;
