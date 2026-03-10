@@ -22,15 +22,27 @@ local `epub_root/`.
 - **HTML link rewriting during zip**:
   - Converts absolute O'Reilly API URLs (e.g.,
 `/api/v2/epubs/.../files/images/foo.jpg`) to **relative paths** inside the
-EPUB so images/styles render correctly offline.
-
-## Requirements
-
-- **Rust** (stable, 1.75+ recommended) with Cargo.
-- A **`cookies.json`** file for `learning.oreilly.com` (see below).
-- Network access to O'Reilly's API while running the tool.
+EPUB so images/styles render correctly.
+- Accelerated file downloads via parallelization.
 
 ## Installation
+
+### Ready-to-use binaries
+
+You can find binaries for major Operating Systems at
+[GitHub releases](https://github.com/Farzat07/oreilly-epub/releases). \
+For portable Linux releases (`musl` or `ARM64`), check the
+[GitLab releases](https://gitlab.com/Farzat07/oreilly-epub/-/releases).
+
+Just plug-in and use.
+
+### Manual build
+
+#### Build requirements
+
+- **Rust** (stable, 1.75+ recommended) with Cargo.
+
+#### Build instructions
 
 ```bash
 git clone <REPO_URL>
@@ -40,9 +52,35 @@ cargo build --release
 
 The binary will be at `target/release/oreilly-epub`.
 
-## Cookies setup (`cookies.json`)
+## Usage
 
-Place a `cookies.json` file in the project root (or pass `--cookies <path>`). \
+```txt
+oreilly-epub [OPTIONS] <BOOKID>
+
+Arguments:
+  <BOOKID>  The Book digits ID that you want to download
+
+Options:
+      --cookies <COOKIES>    Path to the cookies.json file.
+      --skip-download        If files already downloaded in a previous run.
+      --parallel <PARALLEL>  Number of files to download in parallel.
+```
+
+**Example:**
+
+```bash
+oreilly-epub 9781787782204 --cookies ./cookies.json
+```
+
+Requires:
+
+- A **`cookies.json`** file for `learning.oreilly.com` (see below).
+- Network access to O'Reilly's API while running the tool.
+
+### Cookies setup (`cookies.json`)
+
+Place a `cookies.json` file in the current working directory or config directory
+(or pass `--cookies <path>`). \
 The file is a **flat JSON object**: cookie name → cookie value.
 
 **Example:**
@@ -64,21 +102,15 @@ The file is a **flat JSON object**: cookie name → cookie value.
 JSON.stringify(document.cookie.split(";").map(c=>c.split("=")).reduce((r,[k,v])=>({...r,[k.trim()]:v?.trim()}),{}))
 ```
 
-## Usage
+### Config directory
 
-```bash
-# Basic:
-oreilly-epub <bookid>
+This depends on the platform, as below:
 
-# With a custom cookies file:
-oreilly-epub <bookid> --cookies /path/to/cookies.json
-```
-
-**Example:**
-
-```bash
-target/release/oreilly-epub 9781787782204 --cookies ./cookies.json
-```
+|Platform|Value|Example|
+|--------|-----|-------|
+|Linux|`$XDG_CONFIG_HOME`/oreilly-epub or `$HOME`/.config/oreilly-epub|/home/alice/.config/oreilly-epub|
+|macOS|`$HOME`/Library/Application Support/oreilly-epub|/Users/Alice/Library/Application&nbsp;Support/oreilly-epub|
+|Windows|`{FOLDERID_LocalAppData}`\oreilly-epub|C:\Users\Alice\AppData\Local\oreilly-epub|
 
 ## Notes & Limitations
 
@@ -97,7 +129,7 @@ included and linked properly (cross-check chapters endpoint vs files list).
 - [ ] **License**: add copyright notice to each file and specify it in Cargo.toml.
 - [x] **XDG directories**: use XDG‑compatible defaults for config and the
 download root.
-- [ ] **Concurrency**: implement parallel downloads with a configurable limit.
+- [x] **Concurrency**: implement parallel downloads with a configurable limit.
 - [ ] **Progress reporting**: display per‑file and overall progress (bytes
 and/or file counts).
 - [x] **Richer metadata**: add metadata such as description to the OPF.
@@ -105,5 +137,6 @@ and/or file counts).
 raw strings.
 - [x] **Low‑memory zip**: stream files to the archive in chunks to reduce peak
 memory.
-- [ ] **CI/CD**: add a basic pipeline (build, fmt, clippy, test, release
+- [x] **CI/CD**: add a basic pipeline (build, fmt, clippy, test, release
 artifact).
+- [ ] **Tests**: write actual tests to run in the CI pipeline.
