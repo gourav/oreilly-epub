@@ -1,3 +1,7 @@
+// Copyright (C) 2026  A Farzat
+// This program is free software: you can redistribute it and/or modify it under the terms of the
+// GNU General Public License, GPLv3, attached at the root of the project.
+
 use relative_path::RelativePathBuf;
 use serde::Deserialize;
 use url::Url;

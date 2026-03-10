@@ -2,6 +2,7 @@
 name = "oreilly-epub"
 version = "0.1.3"
 edition = "2024"
+license = "GPL-3.0-only"
 
 [dependencies]
 anyhow = "1.0.102"

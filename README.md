@@ -126,7 +126,7 @@ referenced assets.
 parsing to update `src`, `href`, and other attributes precisely.
 - [x] **Stylesheets completeness**: ensure all CSS referenced by chapters is
 included and linked properly (cross-check chapters endpoint vs files list).
-- [ ] **License**: add copyright notice to each file and specify it in Cargo.toml.
+- [x] **License**: add copyright notice to each file and specify it in Cargo.toml.
 - [x] **XDG directories**: use XDG‑compatible defaults for config and the
 download root.
 - [x] **Concurrency**: implement parallel downloads with a configurable limit.
