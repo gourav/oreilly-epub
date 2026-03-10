@@ -3,18 +3,17 @@ use crate::{
     xml::{build_epub_chapter, write_modified_opf},
 };
 use anyhow::{Context, Result};
+use futures_util::TryStreamExt;
 use ogrim::xml;
 use relative_path::{RelativePath, RelativePathBuf};
 use reqwest::Client;
 use std::{
     collections::HashMap,
-    io::{BufReader, Write, copy},
+    io::{BufReader, Write},
     path::Path,
 };
-use tokio::{
-    fs::{self, File},
-    io::AsyncWriteExt,
-};
+use tokio::fs::{self, File};
+use tokio_util::io::StreamReader;
 use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
 /// Creates and writes container.xml.
@@ -34,6 +33,7 @@ fn write_container_xml<W: Write>(out: &mut W, opf_full_path: &RelativePathBuf) -
     Ok(())
 }
 
+/// Downloads files to the relative location specified in full_path.
 pub async fn download_all_files(
     client: &Client,
     file_entries: &[FileEntry],
@@ -47,15 +47,15 @@ pub async fn download_all_files(
         }
 
         let mut file = File::create(dest_path).await?;
-        let bytes = client
+        let bytes_stream = client
             .get(entry.url.clone())
             .send()
             .await?
             .error_for_status()?
-            .bytes()
-            .await?;
+            .bytes_stream();
+        let mut reader = StreamReader::new(bytes_stream.map_err(std::io::Error::other));
 
-        file.write_all(&bytes).await?;
+        tokio::io::copy(&mut reader, &mut file).await?;
     }
     Ok(())
 }
@@ -122,7 +122,7 @@ pub fn create_epub_archive(
         } else if entry.ourn == opf_entry.ourn {
             write_modified_opf(buf_reader, &mut zip, &epub_data.descriptions.plain)?;
         } else {
-            copy(&mut buf_reader, &mut zip)?;
+            std::io::copy(&mut buf_reader, &mut zip)?;
         }
     }
 
