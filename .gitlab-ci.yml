@@ -1,6 +1,7 @@
 stages:
   - check
   - test
+  - build
   - release
 
 variables:
@@ -35,11 +36,11 @@ test:
     - branches
     - tags
 
-release:
-  stage: release
+build:
+  stage: build
   needs:
     - test
-  # Only run on tags starting with "v".
+  # Run only for semver-like tags "vX.Y.Z".
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
       when: on_success
@@ -86,3 +87,29 @@ release:
     paths:
       - dist/
     expire_in: 1 week
+
+release:
+  stage: release
+  needs:
+    - job: build
+      artifacts: true
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  # Run only for semver-like tags "vX.Y.Z".
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: on_success
+    - when: never
+  script:
+    # Visual inspection for debugging.
+    - ls -lh dist/
+    # Authenticate glab using CLI tokens.
+    - glab auth login --job-token $CI_JOB_TOKEN
+    # Create (or update) the Release for this tag.
+    - glab release create "$CI_COMMIT_TAG"
+        --name "oreilly-epub $CI_COMMIT_TAG"
+        --notes "Automated release for $CI_COMMIT_TAG"
+        --use-package-registry
+        "dist/oreilly-epub-linux-x86_64#Linux x86_64#package"
+        "dist/oreilly-epub-linux-x86_64-musl#Linux x86_64 (musl)#package"
+        "dist/oreilly-epub-linux-aarch64#Linux ARM64#package"
+        "dist/oreilly-epub-linux-aarch64-musl#Linux ARM64 (musl)#package"
