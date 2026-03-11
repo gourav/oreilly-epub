@@ -6,8 +6,14 @@ layout, fixes resource links (images, etc.) so they work offline, and zips
 everything into a ready‑to‑read `.epub`.
 
 > :warning: You must have a valid O'Reilly Learning subscription and your own
-> session cookies. This tool is intended for personal/offline use with content
-> you're authorized to access.
+session cookies. This tool is intended for personal/offline use with content
+you're authorized to access.
+>
+> :warning: If you download too many books at once, the website will start
+returning the following error: HTTP status client error (403 Forbidden). \
+Download books moderately and add intervals between downloads. Remember that
+the tool is intended for personal use only. I suggest not downloading in a day
+more than you can realistically read in a week.
 
 ## Features
 
@@ -120,8 +126,8 @@ referenced assets.
 
 ## Roadmap / TODO
 
-- [ ] **Logging**: add the ability to perform logging.
-- [ ] **CONTRIBUTING.md**: add architecture notes & contributor guidelines.
+- [ ] **Logging**: add the ability to log unexpected behaviour.
+- [x] **CONTRIBUTING.md**: add architecture notes & contributor guidelines.
 - [x] **Robust HTML rewriting**: replace string replacement with real XHTML
 parsing to update `src`, `href`, and other attributes precisely.
 - [x] **Stylesheets completeness**: ensure all CSS referenced by chapters is
