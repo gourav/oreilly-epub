@@ -99,14 +99,16 @@ The file is a **flat JSON object**: cookie name → cookie value.
 }
 ```
 
-> Tip: You can obtain the cookies for `learning.oreilly.com` from your
-> browser's developer tools by visiting the website and running the command
-> below in the console. Write down the output to `cookies.json` and keep the
-> file private.
+You can follow the steps below to create the file. Make sure to keep the file private.
 
-```js
-JSON.stringify(document.cookie.split(";").map(c=>c.split("=")).reduce((r,[k,v])=>({...r,[k.trim()]:v?.trim()}),{}))
-```
+1. Login as usual to [https://learning.oreilly.com/](https://learning.oreilly.com/).
+1. Open the developer tools with F12 or Ctrl-Shift-i.
+1. Go to the Network tab in the developer tools.
+1. Access the profile page in the browser: [https://learning.oreilly.com/profile/](https://learning.oreilly.com/profile/).
+1. In the Network tab, click on the request to /profile/ (should be the first one).
+1. Click on the Cookies tab in the request information.
+1. Right-click on the Request cookies text and choose Copy All.
+1. Paste this into the cookies.json file and remove the quotes surrounding the JSON.
 
 ### Config directory
 
