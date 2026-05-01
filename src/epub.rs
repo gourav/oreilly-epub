@@ -4,7 +4,7 @@
 
 use crate::{
     models::{Chapter, EpubResponse, FileEntry},
-    xml::{build_epub_chapter, write_modified_opf},
+    xml::{build_epub_chapter, sanitize_xhtml_file, write_modified_opf},
 };
 use anyhow::{Context, Result};
 use futures_util::{StreamExt, TryStreamExt, stream::FuturesUnordered};
@@ -155,6 +155,13 @@ pub fn create_epub_archive(
             )?;
         } else if entry.ourn == opf_entry.ourn {
             write_modified_opf(buf_reader, &mut zip, &epub_data.descriptions.plain)?;
+        } else if matches!(
+            entry.media_type.as_str(),
+            "application/xhtml+xml" | "text/html"
+        ) {
+            // Run XHTML files through the sanitizer to strip injected <script>
+            // elements and normalize HTML5 boolean attributes for XML validity.
+            sanitize_xhtml_file(buf_reader, &mut zip)?;
         } else {
             std::io::copy(&mut buf_reader, &mut zip)?;
         }

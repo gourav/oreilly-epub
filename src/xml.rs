@@ -77,12 +77,43 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
     let mut writer = Writer::new(&mut out);
 
     // Loop through the XML events and rewrite tags.
+    // Source files may be full XHTML documents (with their own XML declaration,
+    // DOCTYPE, <html>, <head>, <body> elements).  We must skip all of that
+    // structural boilerplate so that only the body content is emitted into the
+    // wrapper we already wrote above.  If the source is already a bare
+    // fragment these checks are simply never triggered.
+    let mut in_head = false;
+    let mut in_script = false;
     let mut buffer = Vec::new();
     loop {
         match reader.read_event_into(&mut buffer) {
+            // Skip XML declarations and DOCTYPE – already provided by the wrapper.
+            Ok(Event::Decl(_)) | Ok(Event::DocType(_)) => {}
             Ok(Event::Start(tag_data)) => {
-                // If it is a void tag, convert it to a self-closing XML tag.
-                let tag_type = if is_html_void_tag(tag_data.name().as_ref()) {
+                let name_buf = tag_data.name().as_ref().to_owned();
+                let name = name_buf.as_slice();
+                // Skip the outer structural tags of a full HTML/XHTML document.
+                if matches!(name, b"html" | b"body") {
+                    continue;
+                }
+                // Track the source document's <head> so its contents are suppressed.
+                if name == b"head" {
+                    in_head = true;
+                    continue;
+                }
+                if in_head {
+                    continue;
+                }
+                // Strip injected <script> elements from the body.
+                if name == b"script" {
+                    in_script = true;
+                    continue;
+                }
+                if in_script {
+                    continue;
+                }
+                // Normal processing: convert void tags to self-closing form.
+                let tag_type = if is_html_void_tag(name) {
                     Event::Empty
                 } else {
                     Event::Start
@@ -94,6 +125,14 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
                 )))?;
             }
             Ok(Event::Empty(tag_data)) => {
+                if in_head || in_script {
+                    continue;
+                }
+                let name_buf = tag_data.name().as_ref().to_owned();
+                let name = name_buf.as_slice();
+                if name == b"script" {
+                    continue;
+                }
                 // If tags are already empty, leave them as-is.
                 writer.write_event(Event::Empty(rewrite_attributes(
                     &tag_data,
@@ -102,15 +141,40 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
                 )))?;
             }
             Ok(Event::End(tag_data)) => {
+                let name_buf = tag_data.name().as_ref().to_owned();
+                let name = name_buf.as_slice();
+                // Skip closing structural tags.
+                if matches!(name, b"html" | b"body") {
+                    continue;
+                }
+                if name == b"head" {
+                    in_head = false;
+                    continue;
+                }
+                if in_head {
+                    continue;
+                }
+                if name == b"script" {
+                    in_script = false;
+                    continue;
+                }
+                if in_script {
+                    continue;
+                }
                 // Silently drop closing tags for void elements if they exist (e.g. <img></img>).
-                if !is_html_void_tag(tag_data.name().as_ref()) {
+                if !is_html_void_tag(name) {
                     writer.write_event(Event::End(tag_data))?;
                 }
             }
             Ok(Event::Eof) => break,
-            Ok(tag_data) => writer.write_event(tag_data)?, // Pass through text, comments, etc. unmodified.
+            Ok(tag_data) => {
+                if !in_head && !in_script {
+                    writer.write_event(tag_data)?; // Pass through text, comments, etc. unmodified.
+                }
+            }
             Err(e) => anyhow::bail!(e),
         }
+        buffer.clear();
     }
 
     // Finish by flushing wrapper suffix to output.
@@ -220,9 +284,89 @@ fn rewrite_attributes<'a>(
             }
         }
 
-        // Keep all other attributes intact.
-        new_elem.push_attribute(attr);
+        // Keep all other attributes intact, normalizing HTML5 boolean attributes
+        // (e.g. `async` → `async="async"`) to produce valid XML.
+        if attr.value.as_ref().is_empty() {
+            let key_str = String::from_utf8_lossy(key).into_owned();
+            new_elem.push_attribute((key_str.as_str(), key_str.as_str()));
+        } else {
+            new_elem.push_attribute(attr);
+        }
     }
 
     new_elem
+}
+
+/// Sanitizes a non-chapter XHTML file for EPUB inclusion.
+/// Strips injected `<script>` elements and normalizes HTML5 boolean attributes
+/// to valid XML form, while preserving the full document structure.
+pub fn sanitize_xhtml_file<R: BufRead, W: Write>(input: R, mut out: &mut W) -> Result<()> {
+    let mut reader = Reader::from_reader(input);
+    reader.config_mut().trim_text(false);
+    reader.config_mut().check_end_names = false;
+    let mut writer = Writer::new(&mut out);
+
+    let mut in_script = false;
+    let mut buffer = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(tag_data)) => {
+                let name_buf = tag_data.name().as_ref().to_owned();
+                let name = name_buf.as_slice();
+                if name == b"script" {
+                    in_script = true;
+                    continue;
+                }
+                if in_script {
+                    continue;
+                }
+                // Convert void elements to self-closing form for XML validity.
+                let tag_type = if is_html_void_tag(name) {
+                    Event::Empty
+                } else {
+                    Event::Start
+                };
+                writer.write_event(tag_type(rewrite_attributes(
+                    &tag_data,
+                    &HashMap::new(),
+                    RelativePath::new(""),
+                )))?;
+            }
+            Ok(Event::Empty(tag_data)) => {
+                let name_buf = tag_data.name().as_ref().to_owned();
+                let name = name_buf.as_slice();
+                if name == b"script" || in_script {
+                    continue;
+                }
+                writer.write_event(Event::Empty(rewrite_attributes(
+                    &tag_data,
+                    &HashMap::new(),
+                    RelativePath::new(""),
+                )))?;
+            }
+            Ok(Event::End(tag_data)) => {
+                let name_buf = tag_data.name().as_ref().to_owned();
+                let name = name_buf.as_slice();
+                if name == b"script" {
+                    in_script = false;
+                    continue;
+                }
+                if in_script {
+                    continue;
+                }
+                if !is_html_void_tag(name) {
+                    writer.write_event(Event::End(tag_data))?;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(event) => {
+                if !in_script {
+                    writer.write_event(event)?;
+                }
+            }
+            Err(e) => anyhow::bail!(e),
+        }
+        buffer.clear();
+    }
+    Ok(())
 }
