@@ -9,6 +9,7 @@ use quick_xml::{Reader, Writer};
 use relative_path::{RelativePath, RelativePathBuf};
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
+use std::path::Path;
 use url::Url;
 
 use crate::models::{Chapter, EpubResponse, FileEntry};
@@ -42,6 +43,8 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
     fragment_input: R,
     url_to_file: &HashMap<&Url, &FileEntry>,
     url_path_to_local: &HashMap<&str, &RelativePathBuf>,
+    epub_root: &Path,
+    embed_styles: bool,
     mut out: &mut W,
 ) -> Result<()> {
     // EPUB XHTML Boilerplate wrapper.
@@ -52,7 +55,11 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
             lang={epub_data.language} xml:lang={epub_data.language}>
         <head>
             <title>{chapter.title}</title>
-            {|doc| make_stylesheet_links(doc, chapter, chapter_dir, url_to_file)}
+            {|doc| if embed_styles {
+                make_stylesheet_inline(doc, chapter, url_to_file, epub_root);
+            } else {
+                make_stylesheet_links(doc, chapter, chapter_dir, url_to_file);
+            }}
         </head>
         <body>
         </body>
@@ -246,6 +253,24 @@ fn make_stylesheet_links(
                 <link rel="stylesheet" type={e.media_type} href={rel_path} />
             );
         })
+}
+
+/// Inlines stylesheet contents as <style> elements in the chapter <head>.
+fn make_stylesheet_inline(
+    doc: &mut Document,
+    chapter: &Chapter,
+    url_to_file: &HashMap<&Url, &FileEntry>,
+    epub_root: &Path,
+) {
+    chapter
+        .related_assets
+        .stylesheets
+        .iter()
+        .filter_map(|u| url_to_file.get(u))
+        .filter_map(|e| std::fs::read_to_string(e.full_path.to_path(epub_root)).ok())
+        .for_each(|css| {
+            xml!(doc, <style>{css}</style>);
+        });
 }
 
 /// Helper function to inspect tags and rewrite the elements' attributes.

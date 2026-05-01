@@ -35,6 +35,9 @@ struct Args {
     /// Number of files to download in parallel. Limit is 8 (be polite).
     #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 4)]
     parallel: u32,
+    /// Inline stylesheet contents into each chapter's <head> instead of linking external CSS files.
+    #[arg(long = "embed-styles")]
+    embed_styles: bool,
 }
 
 /// Fetches EPUB structural data (like the chapters URL).
@@ -148,7 +151,7 @@ async fn main() -> Result<()> {
         .await?;
     }
     println!("Generating the EPUB file...");
-    create_epub_archive(&epub_data, &epub_root, &epub_path, &file_entries, &chapters)?;
+    create_epub_archive(&epub_data, &epub_root, &epub_path, &file_entries, &chapters, args.embed_styles)?;
 
     Ok(())
 }

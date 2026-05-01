@@ -101,6 +101,7 @@ pub fn create_epub_archive(
     output_epub: &Path,
     file_entries: &[FileEntry],
     chapters: &HashMap<String, Chapter>,
+    embed_styles: bool,
 ) -> Result<()> {
     if let Some(parent_dir) = output_epub.parent() {
         std::fs::create_dir_all(parent_dir)?;
@@ -151,6 +152,8 @@ pub fn create_epub_archive(
                 buf_reader,
                 &url_to_file,
                 &url_path_to_local,
+                epub_root,
+                embed_styles,
                 &mut zip,
             )?;
         } else if entry.ourn == opf_entry.ourn {
