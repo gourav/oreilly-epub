@@ -19,3 +19,4 @@ zip = { version = "8.1.0", default-features = false, features = ["deflate"] }
 directories = "6.0.0"
 tokio-util = { version = "0.7.18", features = ["io"] }
 futures-util = "0.3.32"
+indicatif = "0.17"

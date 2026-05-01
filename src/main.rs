@@ -17,6 +17,7 @@ use crate::models::{Chapter, EpubResponse, FileEntry, Paginated};
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, value_parser};
 use directories::{BaseDirs, UserDirs};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 
 /// Download and generate an EPUB from Safari Books Online.
@@ -139,14 +140,40 @@ async fn main() -> Result<()> {
         chapters.into_iter().map(|c| (c.ourn.clone(), c)).collect();
     let file_entries: Vec<FileEntry> = fetch_all_pages(&client, epub_data.files.clone()).await?;
 
+    // Define the root directory for the EPUB files.
     let epub_root = data_root.join("files").join(&args.bookid);
+
+    // Categorize file_entries and set up progress bars before download
+    let mut pages = Vec::new();
+    let mut styles = Vec::new();
+    let mut images = Vec::new();
+    for entry in &file_entries {
+        match entry.media_type.as_str() {
+            "application/xhtml+xml" | "text/html" => pages.push(entry),
+            "text/css" => styles.push(entry),
+            mt if mt.starts_with("image/") => images.push(entry),
+            _ => {}
+        }
+    }
+    let m = MultiProgress::new();
+    let pb_pages = m.add(ProgressBar::new(pages.len() as u64));
+    pb_pages.set_style(ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}").unwrap());
+    pb_pages.set_message("Pages");
+    let pb_styles = m.add(ProgressBar::new(styles.len() as u64));
+    pb_styles.set_style(ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}").unwrap());
+    pb_styles.set_message("Styles");
+    let pb_images = m.add(ProgressBar::new(images.len() as u64));
+    pb_images.set_style(ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}").unwrap());
+    pb_images.set_message("Images");
+
     if !args.skip_download {
         println!("Downloading files from the server...");
         download_all_files(
             &client,
             &file_entries,
             &epub_root,
-            args.parallel.try_into()?, // Will work as 1..=8 will fit into any usize.
+            args.parallel.try_into()?,
+            Some((pb_pages.clone(), pb_styles.clone(), pb_images.clone())),
         )
         .await?;
     }

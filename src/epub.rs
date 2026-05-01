@@ -7,14 +7,16 @@ use crate::{
     xml::{build_epub_chapter, sanitize_xhtml_file, write_modified_opf},
 };
 use anyhow::{Context, Result};
-use futures_util::{StreamExt, TryStreamExt, stream::FuturesUnordered};
+use futures_util::{FutureExt, StreamExt, TryStreamExt, stream::FuturesUnordered};
 use ogrim::xml;
 use relative_path::{RelativePath, RelativePathBuf};
 use reqwest::Client;
 use std::{
     collections::HashMap,
+    future::Future,
     io::{BufReader, Write},
     path::Path,
+    pin::Pin,
 };
 use tokio::fs::{self, File};
 use tokio_util::io::StreamReader;
@@ -43,25 +45,72 @@ pub async fn download_all_files(
     file_entries: &[FileEntry],
     dest_root: &Path,
     max_concurrent: usize,
+    progress: Option<(
+        indicatif::ProgressBar,
+        indicatif::ProgressBar,
+        indicatif::ProgressBar,
+    )>,
 ) -> Result<()> {
-    let mut downloading = FuturesUnordered::new();
-    let mut files_iter = file_entries.iter();
+    use futures_util::StreamExt;
+    let mut downloading: FuturesUnordered<
+        Pin<Box<dyn Future<Output = (Result<()>, usize)> + Send>>,
+    > = FuturesUnordered::new();
+    let mut idx = 0;
+    let total = file_entries.len();
 
-    // Start downloading the first n files.
-    for entry in files_iter.by_ref().take(max_concurrent) {
-        downloading.push(download_one_file(client, entry, dest_root));
-    }
-
-    // Obtain completed files from the list as they finish downloading, until empty.
-    while let Some(result) = downloading.next().await {
-        // Make sure they didn't fail first. Propagate any errors immediately.
-        result?;
-        // Refill the slot (if there are any remaining).
-        if let Some(entry) = files_iter.next() {
-            downloading.push(download_one_file(client, entry, dest_root));
+    // Helper to categorize a file.
+    fn category(entry: &FileEntry) -> &'static str {
+        match entry.media_type.as_str() {
+            "application/xhtml+xml" | "text/html" => "page",
+            "text/css" => "style",
+            mt if mt.starts_with("image/") => "image",
+            _ => "other",
         }
     }
 
+    // Start downloading the first n files.
+    while idx < max_concurrent && idx < total {
+        let fut: Pin<Box<dyn Future<Output = (Result<()>, usize)> + Send>> = Box::pin(async move {
+            (
+                download_one_file(client, &file_entries[idx], dest_root).await,
+                idx,
+            )
+        });
+        downloading.push(fut);
+        idx += 1;
+    }
+
+    // Obtain completed files from the list as they finish downloading, until empty.
+    while let Some((result, file_idx)) = downloading.next().await {
+        let entry = &file_entries[file_idx];
+        result?;
+        if let Some((ref pb_pages, ref pb_styles, ref pb_images)) = progress {
+            match category(entry) {
+                "page" => pb_pages.inc(1),
+                "style" => pb_styles.inc(1),
+                "image" => pb_images.inc(1),
+                _ => {}
+            }
+        }
+        // Refill the slot (if there are any remaining).
+        if idx < total {
+            let fut: Pin<Box<dyn Future<Output = (Result<()>, usize)> + Send>> =
+                Box::pin(async move {
+                    (
+                        download_one_file(client, &file_entries[idx], dest_root).await,
+                        idx,
+                    )
+                });
+            downloading.push(fut);
+            idx += 1;
+        }
+    }
+
+    if let Some((pb_pages, pb_styles, pb_images)) = progress {
+        pb_pages.finish();
+        pb_styles.finish();
+        pb_images.finish();
+    }
     Ok(())
 }
 
