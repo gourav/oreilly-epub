@@ -158,11 +158,13 @@ async fn main() -> Result<()> {
     // Compute padding so every bar's label and count column lines up.
     let label_width = "Chapters".len(); // longest label
     let max_count = pages.len().max(styles.len()).max(images.len());
-    let digits = max_count.to_string().len();
-    // Counts go into {prefix} as a pre-formatted fixed-width string so they
-    // right-align regardless of indicatif's template width-specifier support.
-    let fmt_count =
-        |pos: usize, total: usize| -> String { format!("{pos:>digits$}/{total:>digits$}") };
+    // Width of the widest possible "pos/total" string (e.g. "127/127").
+    let count_width = format!("{max_count}/{max_count}").len();
+    // Counts go into {prefix} as a pre-formatted right-aligned fixed-width
+    // string so the entire "pos/total" section aligns to the same column.
+    let fmt_count = |pos: usize, total: usize| -> String {
+        format!("{:>count_width$}", format!("{pos}/{total}"))
+    };
     let template = format!("{{msg:<{label_width}}} [{{wide_bar}}] {{prefix}}");
 
     let m = MultiProgress::new();

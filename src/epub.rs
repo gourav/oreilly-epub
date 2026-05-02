@@ -85,33 +85,31 @@ pub async fn download_all_files(
         let entry = &file_entries[file_idx];
         result?;
         if let Some((ref pb_pages, ref pb_styles, ref pb_images)) = progress {
+            // Width of the widest "pos/total" string across all three bars so
+            // the entire count section right-aligns to the same column.
+            let max_total = pb_pages
+                .length()
+                .unwrap_or(0)
+                .max(pb_styles.length().unwrap_or(0))
+                .max(pb_images.length().unwrap_or(0));
+            let count_width = format!("{max_total}/{max_total}").len();
+            let fmt = |pos: u64, total: u64| -> String {
+                format!("{:>count_width$}", format!("{pos}/{total}"))
+            };
             match category(entry) {
                 "page" => {
                     pb_pages.inc(1);
-                    pb_pages.set_prefix(format!(
-                        "{:>w$}/{:>w$}",
-                        pb_pages.position(),
-                        pb_pages.length().unwrap_or(0),
-                        w = pb_pages.length().unwrap_or(0).to_string().len()
-                    ));
+                    pb_pages.set_prefix(fmt(pb_pages.position(), pb_pages.length().unwrap_or(0)));
                 }
                 "style" => {
                     pb_styles.inc(1);
-                    pb_styles.set_prefix(format!(
-                        "{:>w$}/{:>w$}",
-                        pb_styles.position(),
-                        pb_styles.length().unwrap_or(0),
-                        w = pb_styles.length().unwrap_or(0).to_string().len()
-                    ));
+                    pb_styles
+                        .set_prefix(fmt(pb_styles.position(), pb_styles.length().unwrap_or(0)));
                 }
                 "image" => {
                     pb_images.inc(1);
-                    pb_images.set_prefix(format!(
-                        "{:>w$}/{:>w$}",
-                        pb_images.position(),
-                        pb_images.length().unwrap_or(0),
-                        w = pb_images.length().unwrap_or(0).to_string().len()
-                    ));
+                    pb_images
+                        .set_prefix(fmt(pb_images.position(), pb_images.length().unwrap_or(0)));
                 }
                 _ => {}
             }
