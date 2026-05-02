@@ -34,7 +34,7 @@ struct Args {
     #[arg(long = "skip-download")]
     skip_download: bool,
     /// Number of files to download in parallel. Limit is 8 (be polite).
-    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 4)]
+    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 6)]
     parallel: u32,
     /// Inline stylesheet contents into each chapter's <head> instead of linking external CSS files.
     #[arg(long = "embed-styles")]
@@ -155,19 +155,43 @@ async fn main() -> Result<()> {
             _ => {}
         }
     }
+    // Compute padding so every bar's label and count column lines up.
+    let label_width = "Chapters".len(); // longest label
+    let max_count = pages.len().max(styles.len()).max(images.len());
+    let digits = max_count.to_string().len();
+    // Counts go into {prefix} as a pre-formatted fixed-width string so they
+    // right-align regardless of indicatif's template width-specifier support.
+    let fmt_count =
+        |pos: usize, total: usize| -> String { format!("{pos:>digits$}/{total:>digits$}") };
+    let template = format!("{{msg:<{label_width}}} [{{wide_bar}}] {{prefix}}");
+
     let m = MultiProgress::new();
     let pb_pages = m.add(ProgressBar::new(pages.len() as u64));
-    pb_pages.set_style(ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}").unwrap());
-    pb_pages.set_message("Pages");
+    pb_pages.set_style(
+        ProgressStyle::with_template(&template)
+            .unwrap()
+            .progress_chars("#! "),
+    );
+    pb_pages.set_message("Chapters");
+    pb_pages.set_prefix(fmt_count(0, pages.len()));
     let pb_styles = m.add(ProgressBar::new(styles.len() as u64));
-    pb_styles.set_style(ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}").unwrap());
+    pb_styles.set_style(
+        ProgressStyle::with_template(&template)
+            .unwrap()
+            .progress_chars("#! "),
+    );
     pb_styles.set_message("Styles");
+    pb_styles.set_prefix(fmt_count(0, styles.len()));
     let pb_images = m.add(ProgressBar::new(images.len() as u64));
-    pb_images.set_style(ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}").unwrap());
+    pb_images.set_style(
+        ProgressStyle::with_template(&template)
+            .unwrap()
+            .progress_chars("#! "),
+    );
     pb_images.set_message("Images");
+    pb_images.set_prefix(fmt_count(0, images.len()));
 
     if !args.skip_download {
-        println!("Downloading files from the server...");
         download_all_files(
             &client,
             &file_entries,
@@ -177,6 +201,7 @@ async fn main() -> Result<()> {
         )
         .await?;
     }
+    m.clear()?;
     println!("Generating the EPUB file...");
     create_epub_archive(
         &epub_data,

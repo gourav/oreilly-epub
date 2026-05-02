@@ -86,9 +86,33 @@ pub async fn download_all_files(
         result?;
         if let Some((ref pb_pages, ref pb_styles, ref pb_images)) = progress {
             match category(entry) {
-                "page" => pb_pages.inc(1),
-                "style" => pb_styles.inc(1),
-                "image" => pb_images.inc(1),
+                "page" => {
+                    pb_pages.inc(1);
+                    pb_pages.set_prefix(format!(
+                        "{:>w$}/{:>w$}",
+                        pb_pages.position(),
+                        pb_pages.length().unwrap_or(0),
+                        w = pb_pages.length().unwrap_or(0).to_string().len()
+                    ));
+                }
+                "style" => {
+                    pb_styles.inc(1);
+                    pb_styles.set_prefix(format!(
+                        "{:>w$}/{:>w$}",
+                        pb_styles.position(),
+                        pb_styles.length().unwrap_or(0),
+                        w = pb_styles.length().unwrap_or(0).to_string().len()
+                    ));
+                }
+                "image" => {
+                    pb_images.inc(1);
+                    pb_images.set_prefix(format!(
+                        "{:>w$}/{:>w$}",
+                        pb_images.position(),
+                        pb_images.length().unwrap_or(0),
+                        w = pb_images.length().unwrap_or(0).to_string().len()
+                    ));
+                }
                 _ => {}
             }
         }
