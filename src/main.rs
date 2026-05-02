@@ -9,7 +9,9 @@ mod xml;
 
 use std::collections::HashMap;
 use std::env::current_dir;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
@@ -18,6 +20,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, value_parser};
 use directories::{BaseDirs, UserDirs};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rand::Rng;
 use reqwest::Client;
 
 /// Download and generate an EPUB from Safari Books Online.
@@ -90,24 +93,53 @@ async fn main() -> Result<()> {
     let data_root = base_dirs.data_dir().join("oreilly-epub");
     let config_root = base_dirs.config_dir().join("oreilly-epub");
 
-    // Parse the command line arguments
+    // Parse the command line arguments.
     let args = Args::parse();
 
-    // Obtain the path to the destination EPUB file.
-    let user_dirs = UserDirs::new().context("Could not get XDG user directories.")?;
-    let epub_path = user_dirs
-        .download_dir()
-        .unwrap_or(&user_dirs.home_dir().join("Downloads"))
-        .join("oreilly-epub")
-        .join(format!("{}.epub", args.bookid));
+    // Paths for the lock file and queue file, stored next to the app data.
+    std::fs::create_dir_all(&data_root)?;
+    let lock_path = data_root.join("queue.lock");
+    let queue_path = data_root.join("queue.txt");
 
-    println!("Welcome to SafariBooks Rust Port!");
-    println!("Target Book ID: {}", args.bookid);
+    // Try to become the primary process by creating the lock file exclusively.
+    // `create_new` fails if the file already exists, which means another
+    // instance is already running.
+    let is_primary = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+        .is_ok();
 
-    // Initialise the HTTP client.
+    if !is_primary {
+        // Another process holds the lock — enqueue this ISBN and exit.
+        let mut queue_file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&queue_path)
+            .context("Failed to open queue.txt for appending")?;
+        writeln!(queue_file, "{}", args.bookid).context("Failed to write to queue.txt")?;
+        println!(
+            "Another download is already running. \
+             Book '{}' has been added to the queue ({}).",
+            args.bookid,
+            queue_path.display()
+        );
+        return Ok(());
+    }
+
+    // RAII guard: removes the lock file when dropped, even on error or panic.
+    struct LockGuard(PathBuf);
+    impl Drop for LockGuard {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).ok();
+        }
+    }
+    let _lock_guard = LockGuard(lock_path);
+
+    // We are the primary process. Resolve the HTTP client once and reuse it.
     println!("Loading cookies and initialising the HTTP client...");
     let candidate_cookies_paths = [
-        args.cookies.map(PathBuf::from),
+        args.cookies.clone().map(PathBuf::from),
         Some(config_root.join("cookies.json")),
         Some(current_dir()?.join("cookies.json")),
     ];
@@ -125,9 +157,83 @@ async fn main() -> Result<()> {
         })?;
     let client = build_authenticated_client(&cookies_file)?;
 
+    // Process the requested book first, then drain the queue.
+    let mut current_id = args.bookid.clone();
+    loop {
+        println!("\nWelcome to SafariBooks Rust Port!");
+        println!("Target Book ID: {current_id}");
+        process_book(
+            &client,
+            &current_id,
+            &data_root,
+            args.skip_download,
+            args.parallel.try_into()?,
+            args.embed_styles,
+        )
+        .await?;
+
+        // After finishing, check if there is anything queued.
+        match dequeue_next(&queue_path)? {
+            Some(next_id) => {
+                // Sleep 10-20s before starting the next book.
+                let secs = rand::thread_rng().gen_range(10..=20);
+                println!("Sleeping for {secs} seconds before next book...");
+                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                println!("Woke up, starting next book.");
+                println!("\nPicked up next book from queue: {next_id}");
+                current_id = next_id;
+            }
+            None => break,
+        }
+    }
+
+    // _lock_guard is dropped here (or earlier on any error), removing the lock.
+    Ok(())
+}
+
+/// Removes and returns the first ISBN from `queue.txt`, or `None` if the file
+/// is absent or empty. The file is rewritten without the consumed entry.
+fn dequeue_next(queue_path: &Path) -> Result<Option<String>> {
+    if !queue_path.exists() {
+        return Ok(None);
+    }
+    let mut contents = String::new();
+    std::fs::File::open(queue_path)?.read_to_string(&mut contents)?;
+
+    let mut lines: Vec<&str> = contents.lines().collect();
+    if lines.is_empty() {
+        return Ok(None);
+    }
+    let next = lines.remove(0).to_owned();
+    // Rewrite the file without the consumed entry.
+    let remaining = lines.join("\n");
+    if remaining.is_empty() {
+        std::fs::remove_file(queue_path).ok();
+    } else {
+        std::fs::write(queue_path, format!("{remaining}\n"))?;
+    }
+    Ok(Some(next))
+}
+
+/// Downloads and packages a single book identified by `bookid`.
+async fn process_book(
+    client: &Client,
+    bookid: &str,
+    data_root: &Path,
+    skip_download: bool,
+    parallel: usize,
+    embed_styles: bool,
+) -> Result<()> {
+    // Obtain the path to the destination EPUB file.
+    let user_dirs = UserDirs::new().context("Could not get XDG user directories.")?;
+    let epub_path = user_dirs
+        .download_dir()
+        .unwrap_or(&user_dirs.home_dir().join("Downloads"))
+        .join("oreilly-epub")
+        .join(format!("{bookid}.epub"));
+
     println!("Fetching book metadata...");
-    // Fetch from the EPUB API.
-    let epub_data = fetch_epub_data(&client, &args.bookid).await?;
+    let epub_data = fetch_epub_data(client, bookid).await?;
     println!("Publication date: {}", epub_data.publication_date);
     println!("Title: {}", epub_data.title);
     println!("Chapters URL: {}", epub_data.chapters);
@@ -135,15 +241,14 @@ async fn main() -> Result<()> {
     println!("------------------\n");
 
     println!("Fetching book structure...");
-    let chapters: Vec<Chapter> = fetch_all_pages(&client, epub_data.chapters.clone()).await?;
+    let chapters: Vec<Chapter> = fetch_all_pages(client, epub_data.chapters.clone()).await?;
     let chapters: HashMap<String, Chapter> =
         chapters.into_iter().map(|c| (c.ourn.clone(), c)).collect();
-    let file_entries: Vec<FileEntry> = fetch_all_pages(&client, epub_data.files.clone()).await?;
+    let file_entries: Vec<FileEntry> = fetch_all_pages(client, epub_data.files.clone()).await?;
 
-    // Define the root directory for the EPUB files.
-    let epub_root = data_root.join("files").join(&args.bookid);
+    let epub_root = data_root.join("files").join(bookid);
 
-    // Categorize file_entries and set up progress bars before download
+    // Categorize file_entries and set up progress bars before download.
     let mut pages = Vec::new();
     let mut styles = Vec::new();
     let mut images = Vec::new();
@@ -155,13 +260,9 @@ async fn main() -> Result<()> {
             _ => {}
         }
     }
-    // Compute padding so every bar's label and count column lines up.
-    let label_width = "Chapters".len(); // longest label
+    let label_width = "Chapters".len();
     let max_count = pages.len().max(styles.len()).max(images.len());
-    // Width of the widest possible "pos/total" string (e.g. "127/127").
     let count_width = format!("{max_count}/{max_count}").len();
-    // Counts go into {prefix} as a pre-formatted right-aligned fixed-width
-    // string so the entire "pos/total" section aligns to the same column.
     let fmt_count = |pos: usize, total: usize| -> String {
         format!("{:>count_width$}", format!("{pos}/{total}"))
     };
@@ -193,17 +294,16 @@ async fn main() -> Result<()> {
     pb_images.set_message("Images");
     pb_images.set_prefix(fmt_count(0, images.len()));
 
-    if !args.skip_download {
+    if !skip_download {
         download_all_files(
-            &client,
+            client,
             &file_entries,
             &epub_root,
-            args.parallel.try_into()?,
+            parallel,
             Some((pb_pages.clone(), pb_styles.clone(), pb_images.clone())),
         )
         .await?;
     }
-    m.clear()?;
     println!("Generating the EPUB file...");
     create_epub_archive(
         &epub_data,
@@ -211,8 +311,8 @@ async fn main() -> Result<()> {
         &epub_path,
         &file_entries,
         &chapters,
-        args.embed_styles,
+        embed_styles,
     )?;
-
+    println!("Saved to: {}", epub_path.display());
     Ok(())
 }

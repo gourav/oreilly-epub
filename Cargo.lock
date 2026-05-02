@@ -974,7 +974,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "oreilly-epub"
+name = "oreilly"
 version = "0.1.3"
 dependencies = [
  "anyhow",
@@ -984,6 +984,7 @@ dependencies = [
  "indicatif",
  "ogrim",
  "quick-xml",
+ "rand",
  "relative-path",
  "reqwest",
  "serde",
