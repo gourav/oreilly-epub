@@ -114,11 +114,6 @@ pub async fn download_all_files(
                 _ => {}
             }
         }
-        // Polite delay between requests: sleep a random 10–20 seconds.
-        if idx < total {
-            let secs = rand::random_range(10u64..=20u64);
-            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-        }
         // Refill the slot (if there are any remaining).
         if idx < total {
             let fut: Pin<Box<dyn Future<Output = (Result<()>, usize)> + Send>> =

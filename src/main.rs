@@ -37,7 +37,7 @@ struct Args {
     #[arg(long = "skip-download")]
     skip_download: bool,
     /// Number of files to download in parallel. Limit is 8 (be polite).
-    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 6)]
+    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 5)]
     parallel: u32,
     /// Inline stylesheet contents into each chapter's <head> instead of linking external CSS files.
     #[arg(long = "embed-styles")]
