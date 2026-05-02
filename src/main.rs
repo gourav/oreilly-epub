@@ -20,6 +20,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Parser, value_parser};
 use directories::{BaseDirs, UserDirs};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use colored::Colorize;
 use rand::Rng;
 use reqwest::Client;
 
@@ -37,7 +38,7 @@ struct Args {
     #[arg(long = "skip-download")]
     skip_download: bool,
     /// Number of files to download in parallel. Limit is 8 (be polite).
-    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 5)]
+    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 3)]
     parallel: u32,
     /// Inline stylesheet contents into each chapter's <head> instead of linking external CSS files.
     #[arg(long = "embed-styles")]
@@ -111,18 +112,39 @@ async fn main() -> Result<()> {
         .is_ok();
 
     if !is_primary {
-        // Another process holds the lock — enqueue this ISBN and exit.
+        // Another process holds the lock — check if book is already downloaded before enqueuing.
+        if let Some(user_dirs) = UserDirs::new() {
+            let epub_path = user_dirs
+                .download_dir()
+                .unwrap_or(&user_dirs.home_dir().join("Downloads"))
+                .join("oreilly-epub")
+                .join(format!("{}.epub", args.bookid));
+            if epub_path.exists() {
+                println!(
+                    "Another download is already running, but Book '{}' is already downloaded: {}. Not added to queue.",
+                    args.bookid,
+                    epub_path.display()
+                );
+                return Ok(());
+            }
+        }
+        // Enqueue this ISBN and exit.
         let mut queue_file = OpenOptions::new()
             .append(true)
             .create(true)
             .open(&queue_path)
             .context("Failed to open queue.txt for appending")?;
         writeln!(queue_file, "{}", args.bookid).context("Failed to write to queue.txt")?;
+        // Read the queue file to compute statistics (total queued items).
+        let contents = std::fs::read_to_string(&queue_path)
+            .context("Failed to read queue.txt after appending")?;
+        let total_queued = contents.lines().filter(|l| !l.trim().is_empty()).count();
         println!(
             "Another download is already running. \
-             Book '{}' has been added to the queue ({}).",
+             Book '{}' has been added to the queue ({}). Queue length: {}",
             args.bookid,
-            queue_path.display()
+            queue_path.display(),
+            total_queued
         );
         return Ok(());
     }
@@ -175,12 +197,20 @@ async fn main() -> Result<()> {
         // After finishing, check if there is anything queued.
         match dequeue_next(&queue_path)? {
             Some(next_id) => {
-                // Sleep 10-20s before starting the next book.
-                let secs = rand::thread_rng().gen_range(10..=20);
+                // Compute remaining queued items after consuming one.
+                let total_remaining = if queue_path.exists() {
+                    std::fs::read_to_string(&queue_path)
+                        .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                // Sleep 10-15s before starting the next book.
+                let secs = rand::thread_rng().gen_range(10..=15);
                 println!("Sleeping for {secs} seconds before next book...");
                 tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
                 println!("Woke up, starting next book.");
-                println!("\nPicked up next book from queue: {next_id}");
+                println!("\nPicked up next book from queue: {next_id} (remaining queued: {total_remaining})");
                 current_id = next_id;
             }
             None => break,
@@ -232,10 +262,18 @@ async fn process_book(
         .join("oreilly-epub")
         .join(format!("{bookid}.epub"));
 
+    if epub_path.exists() {
+        println!(
+            "Book '{bookid}' is already downloaded: {}. Skipping.",
+            epub_path.display()
+        );
+        return Ok(());
+    }
+
     println!("Fetching book metadata...");
     let epub_data = fetch_epub_data(client, bookid).await?;
     println!("Publication date: {}", epub_data.publication_date);
-    println!("Title: {}", epub_data.title);
+    println!("Title: {}", epub_data.title.green());
     println!("Chapters URL: {}", epub_data.chapters);
     println!("Resources URL: {}", epub_data.files);
     println!("------------------\n");
