@@ -21,7 +21,6 @@ use clap::{Parser, value_parser};
 use directories::{BaseDirs, UserDirs};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use colored::Colorize;
-use rand::Rng;
 use reqwest::Client;
 
 /// Download and generate an EPUB from Safari Books Online.
@@ -121,9 +120,21 @@ async fn main() -> Result<()> {
                 .join(format!("{}.epub", args.bookid));
             if epub_path.exists() {
                 println!(
-                    "Another download is already running, but Book '{}' is already downloaded: {}. Not added to queue.",
+                    "Book '{}' is already downloaded: {}.",
                     args.bookid,
                     epub_path.display()
+                );
+                return Ok(());
+            }
+        }
+        // Check if book is already in the queue.
+        if queue_path.exists() {
+            let existing = std::fs::read_to_string(&queue_path)
+                .context("Failed to read queue.txt")?;
+            if existing.lines().any(|l| l.trim() == args.bookid.as_str()) {
+                println!(
+                    "Book '{}' is already in the queue. Skipping.",
+                    args.bookid
                 );
                 return Ok(());
             }
@@ -140,10 +151,8 @@ async fn main() -> Result<()> {
             .context("Failed to read queue.txt after appending")?;
         let total_queued = contents.lines().filter(|l| !l.trim().is_empty()).count();
         println!(
-            "Another download is already running. \
-             Book '{}' has been added to the queue ({}). Queue length: {}",
+            "Book '{}' has been added to the queue. Queue length: {}",
             args.bookid,
-            queue_path.display(),
             total_queued
         );
         return Ok(());
@@ -205,11 +214,6 @@ async fn main() -> Result<()> {
                 } else {
                     0
                 };
-                // Sleep 10-15s before starting the next book.
-                let secs = rand::thread_rng().gen_range(10..=15);
-                println!("Sleeping for {secs} seconds before next book...");
-                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-                println!("Woke up, starting next book.");
                 println!("\nPicked up next book from queue: {next_id} (remaining queued: {total_remaining})");
                 current_id = next_id;
             }
