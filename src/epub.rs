@@ -4,6 +4,7 @@
 
 use crate::{
     models::{Chapter, EpubResponse, FileEntry},
+    style::StyleOptions,
     xml::{build_epub_chapter, sanitize_xhtml_file, write_modified_opf},
 };
 use anyhow::{Context, Result};
@@ -14,7 +15,7 @@ use reqwest::Client;
 use std::{
     collections::HashMap,
     future::Future,
-    io::{BufReader, Write},
+    io::{BufReader, Read, Write},
     path::Path,
     pin::Pin,
 };
@@ -173,6 +174,7 @@ pub fn create_epub_archive(
     file_entries: &[FileEntry],
     chapters: &HashMap<String, Chapter>,
     embed_styles: bool,
+    style: &StyleOptions,
 ) -> Result<()> {
     if let Some(parent_dir) = output_epub.parent() {
         std::fs::create_dir_all(parent_dir)?;
@@ -208,6 +210,21 @@ pub fn create_epub_archive(
         .map(|e| (&e.url, e))
         .collect::<HashMap<_, _>>();
 
+    // Manifest items for the embedded code font, relative to the OPF.
+    let opf_dir = opf_entry
+        .full_path
+        .parent()
+        .unwrap_or(RelativePath::new(""));
+    let font_items: Vec<(String, String, &str)> = style
+        .font_faces()
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let href = opf_dir.relative(RelativePath::new(&f.path)).to_string();
+            (href, format!("operator-mono-{i}"), "font/otf")
+        })
+        .collect();
+
     // Add the rest of the files according to file_entries.
     // The `options` variable remains unchanged from "container.xml".
     for entry in file_entries {
@@ -225,10 +242,22 @@ pub fn create_epub_archive(
                 &url_path_to_local,
                 epub_root,
                 embed_styles,
+                style,
                 &mut zip,
             )?;
         } else if entry.ourn == opf_entry.ourn {
-            write_modified_opf(buf_reader, &mut zip, &epub_data.descriptions.plain)?;
+            write_modified_opf(
+                buf_reader,
+                &mut zip,
+                &epub_data.descriptions.plain,
+                &font_items,
+            )?;
+        } else if style.is_active() && entry.media_type == "text/css" {
+            // Strip colors / fonts and point at the embedded code font.
+            let mut css = String::new();
+            buf_reader.read_to_string(&mut css)?;
+            let css_dir = entry.full_path.parent().unwrap_or(RelativePath::new(""));
+            zip.write_all(style.transform_css(&css, css_dir).as_bytes())?;
         } else if matches!(
             entry.media_type.as_str(),
             "application/xhtml+xml" | "text/html"
@@ -239,6 +268,12 @@ pub fn create_epub_archive(
         } else {
             std::io::copy(&mut buf_reader, &mut zip)?;
         }
+    }
+
+    // Add the embedded code font files.
+    for face in style.font_faces() {
+        zip.start_file(&face.path, options)?;
+        zip.write_all(&face.data)?;
     }
 
     zip.finish()?;

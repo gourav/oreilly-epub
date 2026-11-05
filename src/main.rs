@@ -5,6 +5,7 @@
 mod epub;
 mod http_client;
 mod models;
+mod style;
 mod xml;
 
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ use std::path::{Path, PathBuf};
 use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
 use crate::models::{Chapter, EpubResponse, FileEntry, Paginated};
+use crate::style::StyleOptions;
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, value_parser};
 use directories::{BaseDirs, UserDirs};
@@ -42,6 +44,13 @@ struct Args {
     /// Inline stylesheet contents into each chapter's <head> instead of linking external CSS files.
     #[arg(long = "embed-styles")]
     embed_styles: bool,
+    /// Keep the book's original colors and fonts. By default color/background declarations
+    /// (including dark-mode blocks) and every font-family except for code are stripped.
+    #[arg(long = "keep-styles")]
+    keep_styles: bool,
+    /// Path to OperatorMono.zip. Embeds Operator Mono (Book/Bold) as the font for code.
+    #[arg(long = "code-font", value_name = "ZIP")]
+    code_font: Option<PathBuf>,
 }
 
 /// Fetches EPUB structural data (like the chapters URL).
@@ -188,6 +197,8 @@ async fn main() -> Result<()> {
         })?;
     let client = build_authenticated_client(&cookies_file)?;
 
+    let style = StyleOptions::new(!args.keep_styles, args.code_font.as_deref())?;
+
     // Process the requested book first, then drain the queue.
     let mut current_id = args.bookid.clone();
     loop {
@@ -200,6 +211,7 @@ async fn main() -> Result<()> {
             args.skip_download,
             args.parallel.try_into()?,
             args.embed_styles,
+            &style,
         )
         .await?;
 
@@ -257,6 +269,7 @@ async fn process_book(
     skip_download: bool,
     parallel: usize,
     embed_styles: bool,
+    style: &StyleOptions,
 ) -> Result<()> {
     // Obtain the path to the destination EPUB file.
     let user_dirs = UserDirs::new().context("Could not get XDG user directories.")?;
@@ -354,6 +367,7 @@ async fn process_book(
         &file_entries,
         &chapters,
         embed_styles,
+        style,
     )?;
     println!("Saved to: {}", epub_path.display());
     Ok(())

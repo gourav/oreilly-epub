@@ -70,6 +70,11 @@ Options:
       --cookies <COOKIES>    Path to the cookies.json file.
       --skip-download        If files already downloaded in a previous run.
       --parallel <PARALLEL>  Number of files to download in parallel.
+      --keep-styles          Keep the book's colors and fonts. By default, color/background
+                             declarations (including dark-mode blocks) and every
+                             font-family except for code are stripped.
+      --code-font <ZIP>      Path to OperatorMono.zip. Embeds Operator Mono (Book/Bold)
+                             as the code font. The font is not bundled with this repo.
 ```
 
 **Example:**

@@ -13,6 +13,7 @@ use std::path::Path;
 use url::Url;
 
 use crate::models::{Chapter, EpubResponse, FileEntry};
+use crate::style::StyleOptions;
 
 /// Checks if a tag is a standard HTML void element that shouldn't have a closing tag.
 fn is_html_void_tag(name: &[u8]) -> bool {
@@ -45,6 +46,7 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
     url_path_to_local: &HashMap<&str, &RelativePathBuf>,
     epub_root: &Path,
     embed_styles: bool,
+    style: &StyleOptions,
     mut out: &mut W,
 ) -> Result<()> {
     // EPUB XHTML Boilerplate wrapper.
@@ -56,7 +58,7 @@ pub fn build_epub_chapter<R: BufRead, W: Write>(
         <head>
             <title>{chapter.title}</title>
             {|doc| if embed_styles {
-                make_stylesheet_inline(doc, chapter, url_to_file, epub_root);
+                make_stylesheet_inline(doc, chapter, chapter_dir, url_to_file, epub_root, style);
             } else {
                 make_stylesheet_links(doc, chapter, chapter_dir, url_to_file);
             }}
@@ -196,6 +198,7 @@ pub fn write_modified_opf<R: BufRead, W: Write>(
     opf_input: R,
     mut out: &mut W,
     description: &str,
+    extra_items: &[(String, String, &str)],
 ) -> Result<()> {
     // Setup the XML Reader and Writer.
     let mut reader = Reader::from_reader(opf_input);
@@ -217,6 +220,16 @@ pub fn write_modified_opf<R: BufRead, W: Write>(
                 writer.write_event(Event::Start(tag_data))?;
             }
             Ok(Event::End(tag_data)) => {
+                // Register extra files (href, id, media-type) at the end of the manifest.
+                if tag_data.name().as_ref() == b"manifest" {
+                    for (href, id, media_type) in extra_items {
+                        let mut item = BytesStart::new("item");
+                        item.push_attribute(("href", href.as_str()));
+                        item.push_attribute(("id", id.as_str()));
+                        item.push_attribute(("media-type", *media_type));
+                        writer.write_event(Event::Empty(item))?;
+                    }
+                }
                 // Write description if end of metadata is reached without finding one.
                 if tag_data.name().as_ref() == b"metadata" && !desc_found {
                     writer.write_event(Event::Start(BytesStart::new("dc:description")))?;
@@ -259,8 +272,10 @@ fn make_stylesheet_links(
 fn make_stylesheet_inline(
     doc: &mut Document,
     chapter: &Chapter,
+    chapter_dir: &RelativePath,
     url_to_file: &HashMap<&Url, &FileEntry>,
     epub_root: &Path,
+    style: &StyleOptions,
 ) {
     chapter
         .related_assets
@@ -269,6 +284,7 @@ fn make_stylesheet_inline(
         .filter_map(|u| url_to_file.get(u))
         .filter_map(|e| std::fs::read_to_string(e.full_path.to_path(epub_root)).ok())
         .for_each(|css| {
+            let css = style.transform_css(&css, chapter_dir);
             xml!(doc, <style>{css}</style>);
         });
 }
