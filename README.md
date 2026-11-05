@@ -63,6 +63,7 @@ The binary will be at `target/release/oreilly-epub`.
 ```txt
 oreilly-epub [OPTIONS] <BOOKID>
 oreilly-epub download <ISBN>
+oreilly-epub doctor [PATH]...
 oreilly-epub add <ISBN>...
 oreilly-epub redownload <ISBN>
 
@@ -70,6 +71,7 @@ Arguments:
   <BOOKID>  The Book digits ID that you want to download
 
 Commands:
+  doctor      Apply the style fixes and code font to downloaded EPUBs, in place
   download    Download a book (same as `oreilly-epub <ISBN>`)
   add         Add one or more books to the download queue
   redownload  Delete a book's EPUB if present, then download it again (or queue it)

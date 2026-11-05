@@ -2,6 +2,7 @@
 // This program is free software: you can redistribute it and/or modify it under the terms of the
 // GNU General Public License, GPLv3, attached at the root of the project.
 
+mod doctor;
 mod epub;
 mod http_client;
 mod models;
@@ -63,6 +64,15 @@ enum Command {
         /// Book digits IDs (ISBNs) to queue.
         #[arg(required = true, value_name = "ISBN")]
         isbns: Vec<String>,
+    },
+    /// Apply the style fixes (and the code font) to already downloaded EPUBs, in place.
+    Doctor {
+        /// EPUB files or directories to fix. Defaults to the current directory.
+        #[arg(value_name = "PATH")]
+        paths: Vec<PathBuf>,
+        /// Only report which files would change.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
     },
     /// Download a book (same as running `oreilly <ISBN>`). Queued if another download is running.
     Download {
@@ -135,6 +145,11 @@ async fn main() -> Result<()> {
     if let Some(Command::Add { isbns }) = &args.command {
         std::fs::create_dir_all(&data_root)?;
         return add_to_queue(isbns, &data_root);
+    }
+    // `doctor` works on local files only.
+    if let Some(Command::Doctor { paths, dry_run }) = &args.command {
+        let style = StyleOptions::new(!args.keep_styles, args.code_font.as_deref())?;
+        return doctor::run(paths, &style, *dry_run);
     }
     let bookid = match &args.command {
         Some(Command::Redownload { isbn }) => {

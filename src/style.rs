@@ -22,6 +22,7 @@ const FACES: [(&str, u16, bool); 4] = [
 ];
 
 /// A single font file to embed in the EPUB.
+#[derive(Clone)]
 pub struct FontFace {
     /// Path of the file inside the EPUB, e.g. `Misc/OperatorMono-Book.otf`.
     pub path: String,
@@ -31,7 +32,7 @@ pub struct FontFace {
 }
 
 /// What to do to the book's stylesheets.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct StyleOptions {
     /// Remove color/background declarations, dark-mode blocks and non-code `font-family`.
     simplify: bool,
@@ -47,6 +48,14 @@ impl StyleOptions {
             simplify,
             code_font,
         })
+    }
+
+    /// Moves the font files under `base` (the OPF's directory), for EPUBs whose OPF is not at the
+    /// archive root.
+    pub fn relocate_fonts(&mut self, base: &RelativePath) {
+        for face in self.code_font.iter_mut().flatten() {
+            face.path = base.join(RelativePath::new(&face.path)).normalize().to_string();
+        }
     }
 
     /// Whether any stylesheet rewriting is requested.
@@ -96,7 +105,12 @@ impl StyleOptions {
                         }
                     } else if lower.starts_with("@font-face") {
                         // Existing book fonts are only referenced by the families removed below.
-                        if !(self.simplify && self.code_font.is_some()) {
+                        // Our own faces are dropped here and re-added in front, so the rewrite is
+                        // idempotent.
+                        let ours = body.contains(&format!("font-family:\"{FAMILY}\""));
+                        if !(ours && self.code_font.is_some())
+                            && !(self.simplify && self.code_font.is_some())
+                        {
                             out.push_str(&format!("{prelude}{{{body}}}"));
                         }
                     } else if lower.starts_with('@') {
@@ -137,7 +151,11 @@ impl StyleOptions {
             if lower == "font-family" {
                 if is_code {
                     if self.code_font.is_some() {
-                        kept.push(format!("{prop}:\"{FAMILY}\",{value}"));
+                        if value.starts_with(&format!("\"{FAMILY}\"")) {
+                            kept.push(format!("{prop}:{value}"));
+                        } else {
+                            kept.push(format!("{prop}:\"{FAMILY}\",{value}"));
+                        }
                         continue;
                     }
                 } else if self.simplify {
@@ -333,6 +351,27 @@ mod tests {
         let css = "@font-face{font-family:\"JetBrains Mono\";src:url(a.woff2)}p{margin:0}";
         let out = opts(true, true).transform_css(css, RelativePath::new("Styles"));
         assert!(!out.contains("JetBrains"));
+    }
+
+    #[test]
+    fn rewrite_is_idempotent() {
+        let css = "div{font-family:Verdana;color:red}pre.code-area{font-family:Mono,monospace}";
+        let o = opts(true, true);
+        let dir = RelativePath::new("Styles");
+        let once = o.transform_css(css, dir);
+        assert_eq!(o.transform_css(&once, dir), once);
+        let simplify_only = opts(true, false);
+        let once = simplify_only.transform_css(css, dir);
+        assert_eq!(simplify_only.transform_css(&once, dir), once);
+    }
+
+    #[test]
+    fn relocates_fonts_under_opf_dir() {
+        let mut o = opts(true, true);
+        o.relocate_fonts(RelativePath::new("OEBPS"));
+        assert_eq!(o.font_faces()[0].path, "OEBPS/Misc/OperatorMono-Book.otf");
+        let css = o.transform_css("p{margin:0}", RelativePath::new("OEBPS/Styles"));
+        assert!(css.contains("url(../Misc/OperatorMono-Book.otf)"));
     }
 
     #[test]

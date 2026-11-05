@@ -2,12 +2,12 @@
 // This program is free software: you can redistribute it and/or modify it under the terms of the
 // GNU General Public License, GPLv3, attached at the root of the project.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use ogrim::{Document, xml};
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use relative_path::{RelativePath, RelativePathBuf};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Write};
 use std::path::Path;
 use url::Url;
@@ -246,6 +246,77 @@ pub fn write_modified_opf<R: BufRead, W: Write>(
     }
 
     Ok(())
+}
+
+/// Returns the `full-path` of the first `rootfile` in `META-INF/container.xml`.
+pub fn find_opf_path(container: &[u8]) -> Result<String> {
+    let mut reader = Reader::from_reader(container);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Empty(tag)) | Ok(Event::Start(tag)) if tag.name().as_ref() == b"rootfile" => {
+                for attr in tag.attributes().flatten() {
+                    if attr.key.as_ref() == b"full-path" {
+                        return Ok(String::from_utf8_lossy(&attr.value).into_owned());
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => bail!(e),
+            _ => {}
+        }
+        buf.clear();
+    }
+    bail!("No rootfile found in container.xml")
+}
+
+/// Copies an OPF to `out`, appending `items` (href, id, media-type) to the manifest unless an
+/// item with the same href is already there. Returns how many items were added.
+pub fn add_manifest_items<R: BufRead, W: Write>(
+    opf_input: R,
+    mut out: &mut W,
+    items: &[(String, String, &str)],
+) -> Result<usize> {
+    let mut reader = Reader::from_reader(opf_input);
+    reader.config_mut().trim_text(false);
+    let mut writer = Writer::new(&mut out);
+    let mut existing = HashSet::new();
+    let mut added = 0;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Eof) => break,
+            Ok(event) => {
+                match &event {
+                    Event::Empty(tag) | Event::Start(tag) if tag.name().as_ref() == b"item" => {
+                        for attr in tag.attributes().flatten() {
+                            if attr.key.as_ref() == b"href" {
+                                existing.insert(String::from_utf8_lossy(&attr.value).into_owned());
+                            }
+                        }
+                    }
+                    Event::End(tag) if tag.name().as_ref() == b"manifest" => {
+                        for (href, id, media_type) in items {
+                            if existing.contains(href) {
+                                continue;
+                            }
+                            let mut item = BytesStart::new("item");
+                            item.push_attribute(("href", href.as_str()));
+                            item.push_attribute(("id", id.as_str()));
+                            item.push_attribute(("media-type", *media_type));
+                            writer.write_event(Event::Empty(item))?;
+                            added += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                writer.write_event(event)?;
+            }
+            Err(e) => bail!(e),
+        }
+        buf.clear();
+    }
+    Ok(added)
 }
 
 /// Helper function add link elements for stylesheets to an xml Document.
