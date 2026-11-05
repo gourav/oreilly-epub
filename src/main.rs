@@ -18,8 +18,8 @@ use crate::epub::{create_epub_archive, download_all_files};
 use crate::http_client::build_authenticated_client;
 use crate::models::{Chapter, EpubResponse, FileEntry, Paginated};
 use crate::style::StyleOptions;
-use anyhow::{Context, Result, anyhow};
-use clap::{Parser, value_parser};
+use anyhow::{Context, Result, anyhow, bail};
+use clap::{Parser, Subcommand, value_parser};
 use directories::{BaseDirs, UserDirs};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use colored::Colorize;
@@ -28,29 +28,55 @@ use reqwest::Client;
 /// Download and generate an EPUB from Safari Books Online.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
     /// The Book digits ID that you want to download.
     #[arg(required = true)]
-    bookid: String,
+    bookid: Option<String>,
     /// Path to the cookies.json file.
-    #[arg(long)]
+    #[arg(long, global = true)]
     cookies: Option<String>,
     /// Do not download files. Use if they were already downloaded in a previous run.
-    #[arg(long = "skip-download")]
+    #[arg(long = "skip-download", global = true)]
     skip_download: bool,
     /// Number of files to download in parallel. Limit is 8 (be polite).
-    #[arg(long, value_parser=value_parser!(u32).range(1..=8), default_value_t = 3)]
+    #[arg(long, global = true, value_parser=value_parser!(u32).range(1..=8), default_value_t = 3)]
     parallel: u32,
     /// Inline stylesheet contents into each chapter's <head> instead of linking external CSS files.
-    #[arg(long = "embed-styles")]
+    #[arg(long = "embed-styles", global = true)]
     embed_styles: bool,
     /// Keep the book's original colors and fonts. By default color/background declarations
     /// (including dark-mode blocks) and every font-family except for code are stripped.
-    #[arg(long = "keep-styles")]
+    #[arg(long = "keep-styles", global = true)]
     keep_styles: bool,
     /// Path to OperatorMono.zip. Embeds Operator Mono (Book/Bold) as the font for code.
-    #[arg(long = "code-font", value_name = "ZIP")]
+    #[arg(long = "code-font", value_name = "ZIP", global = true)]
     code_font: Option<PathBuf>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Add one or more books to the download queue.
+    Add {
+        /// Book digits IDs (ISBNs) to queue.
+        #[arg(required = true, value_name = "ISBN")]
+        isbns: Vec<String>,
+    },
+    /// Download a book (same as running `oreilly <ISBN>`). Queued if another download is running.
+    Download {
+        /// Book digits ID (ISBN) to download.
+        #[arg(value_name = "ISBN")]
+        isbn: String,
+    },
+    /// Delete a book's EPUB if it was already downloaded, then download it again (or queue it
+    /// if another download is running).
+    Redownload {
+        /// Book digits ID (ISBN) to download again.
+        #[arg(value_name = "ISBN")]
+        isbn: String,
+    },
 }
 
 /// Fetches EPUB structural data (like the chapters URL).
@@ -105,6 +131,20 @@ async fn main() -> Result<()> {
     // Parse the command line arguments.
     let args = Args::parse();
 
+    // `add` only touches the queue file; it needs neither the lock nor the cookies.
+    if let Some(Command::Add { isbns }) = &args.command {
+        std::fs::create_dir_all(&data_root)?;
+        return add_to_queue(isbns, &data_root);
+    }
+    let bookid = match &args.command {
+        Some(Command::Redownload { isbn }) => {
+            delete_downloaded_epub(isbn)?;
+            isbn.clone()
+        }
+        Some(Command::Download { isbn }) => isbn.clone(),
+        _ => args.bookid.clone().context("A BOOKID is required.")?,
+    };
+
     // Paths for the lock file and queue file, stored next to the app data.
     std::fs::create_dir_all(&data_root)?;
     let lock_path = data_root.join("queue.lock");
@@ -126,11 +166,11 @@ async fn main() -> Result<()> {
                 .download_dir()
                 .unwrap_or(&user_dirs.home_dir().join("Downloads"))
                 .join("oreilly-epub")
-                .join(format!("{}.epub", args.bookid));
+                .join(format!("{}.epub", bookid));
             if epub_path.exists() {
                 println!(
                     "Book '{}' is already downloaded: {}.",
-                    args.bookid,
+                    bookid,
                     epub_path.display()
                 );
                 return Ok(());
@@ -140,10 +180,10 @@ async fn main() -> Result<()> {
         if queue_path.exists() {
             let existing = std::fs::read_to_string(&queue_path)
                 .context("Failed to read queue.txt")?;
-            if existing.lines().any(|l| l.trim() == args.bookid.as_str()) {
+            if existing.lines().any(|l| l.trim() == bookid.as_str()) {
                 println!(
                     "Book '{}' is already in the queue. Skipping.",
-                    args.bookid
+                    bookid
                 );
                 return Ok(());
             }
@@ -154,14 +194,14 @@ async fn main() -> Result<()> {
             .create(true)
             .open(&queue_path)
             .context("Failed to open queue.txt for appending")?;
-        writeln!(queue_file, "{}", args.bookid).context("Failed to write to queue.txt")?;
+        writeln!(queue_file, "{}", bookid).context("Failed to write to queue.txt")?;
         // Read the queue file to compute statistics (total queued items).
         let contents = std::fs::read_to_string(&queue_path)
             .context("Failed to read queue.txt after appending")?;
         let total_queued = contents.lines().filter(|l| !l.trim().is_empty()).count();
         println!(
             "Book '{}' has been added to the queue. Queue length: {}",
-            args.bookid,
+            bookid,
             total_queued
         );
         return Ok(());
@@ -200,7 +240,7 @@ async fn main() -> Result<()> {
     let style = StyleOptions::new(!args.keep_styles, args.code_font.as_deref())?;
 
     // Process the requested book first, then drain the queue.
-    let mut current_id = args.bookid.clone();
+    let mut current_id = bookid.clone();
     loop {
         println!("\nWelcome to SafariBooks Rust Port!");
         println!("Target Book ID: {current_id}");
@@ -234,6 +274,83 @@ async fn main() -> Result<()> {
     }
 
     // _lock_guard is dropped here (or earlier on any error), removing the lock.
+    Ok(())
+}
+
+/// Deletes `~/Downloads/oreilly-epub/{bookid}.epub` if it exists, so the book is fetched again.
+fn delete_downloaded_epub(bookid: &str) -> Result<()> {
+    // The ID becomes part of a path, so only plain digits are accepted.
+    if bookid.is_empty() || !bookid.chars().all(|c| c.is_ascii_digit()) {
+        bail!("'{bookid}' is not a valid book ID (digits only).");
+    }
+    let user_dirs = UserDirs::new().context("Could not get XDG user directories.")?;
+    let epub_path = user_dirs
+        .download_dir()
+        .unwrap_or(&user_dirs.home_dir().join("Downloads"))
+        .join("oreilly-epub")
+        .join(format!("{bookid}.epub"));
+    if epub_path.exists() {
+        std::fs::remove_file(&epub_path)
+            .with_context(|| format!("Failed to delete {}", epub_path.display()))?;
+        println!("Deleted existing {}.", epub_path.display());
+    } else {
+        println!("Book '{bookid}' was not downloaded yet.");
+    }
+    Ok(())
+}
+
+/// Appends `isbns` to `queue.txt`, skipping IDs that are already queued, already downloaded, or
+/// repeated in the arguments.
+fn add_to_queue(isbns: &[String], data_root: &Path) -> Result<()> {
+    let (ids, invalid): (Vec<&String>, Vec<&String>) = isbns
+        .iter()
+        .partition(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()));
+
+    let queue_path = data_root.join("queue.txt");
+    let mut known: std::collections::HashSet<String> = std::fs::read_to_string(&queue_path)
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_owned())
+        .collect();
+    let download_dir = UserDirs::new().map(|u| {
+        u.download_dir()
+            .unwrap_or(&u.home_dir().join("Downloads"))
+            .join("oreilly-epub")
+    });
+
+    let (mut added, mut skipped) = (Vec::new(), 0);
+    for id in ids.into_iter().cloned() {
+        let downloaded = download_dir
+            .as_ref()
+            .is_some_and(|dir| dir.join(format!("{id}.epub")).exists());
+        if downloaded || !known.insert(id.clone()) {
+            skipped += 1;
+        } else {
+            added.push(id);
+        }
+    }
+
+    if !added.is_empty() {
+        let mut queue_file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&queue_path)
+            .context("Failed to open queue.txt for appending")?;
+        for id in &added {
+            writeln!(queue_file, "{id}").context("Failed to write to queue.txt")?;
+        }
+    }
+
+    println!(
+        "Added {} book(s) to the queue ({skipped} already queued or downloaded).",
+        added.len()
+    );
+    for id in &invalid {
+        println!("Ignored invalid book ID: {id}");
+    }
+    if !added.is_empty() && !data_root.join("queue.lock").exists() {
+        println!("No download is running. Start one with `oreilly <BOOKID>` to process the queue.");
+    }
     Ok(())
 }
 
